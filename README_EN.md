@@ -4,6 +4,8 @@
 
 Terminal and CLI Quran radio player built with **Bun**, **OpenTUI** (`@opentui/solid`), and a detached `mpv` daemon over Unix IPC.
 
+![Quraa terminal UI preview](./assets/preview.webp)
+
 ## Features
 
 - **Bilingual station catalog**: Fetches live stations from `mp3quran.net/api/v3/radios` (`eng` + `ar`) with a 24-hour XDG cache and a built-in 20-station offline fallback.
