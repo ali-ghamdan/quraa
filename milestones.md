@@ -16,12 +16,12 @@
 ## Milestone 2: Station Catalog & Persistent State
 - **Goal**: Deliver a resilient Quran radio catalog combining live `mp3quran.net` v3 bilingual (`eng` / `ar`) station data, local XDG caching, curated offline fallback, custom user stations, and atomic state persistence (favorites, recents, volume, language toggle, last played).
 - **Tasks**:
-  - [ ] Implement `src/core/store.ts` with atomic temp-file + rename read/write for `state.json` and custom `stations.json`
-  - [ ] Bundle curated offline fallback stations (~20 flagship reciters & thematic streams) inside `src/core/catalog.ts`
-  - [ ] Implement `mp3quran.net/api/v3/radios` bilingual fetch (`?language=eng` + `?language=ar`), 5s timeout, ID-based merge, and 24h XDG cache with background refresh
-  - [ ] Implement title normalization (strip `"Radio "` / `"---"` noise while retaining raw names for search), thematic vs reciter classification, and `http:`/`https:` custom station URL validation
-  - [ ] Implement category filtering (`all`, `favorites`, `recent`, `reciter`, `thematic`, `custom`) and fuzzy search matching across `nameEn`, `rawNameEn`, and `nameAr`
-  - [ ] Write `tests/catalog.test.ts` covering API merge, title cleanup, Arabic toggle, thematic classification, offline fallback, custom validation, and fuzzy search
+  - [x] Implement `src/core/store.ts` with atomic temp-file + rename read/write for `state.json` and custom `stations.json`
+  - [x] Bundle curated offline fallback stations (~20 flagship reciters & thematic streams) inside `src/core/catalog.ts`
+  - [x] Implement `mp3quran.net/api/v3/radios` bilingual fetch (`?language=eng` + `?language=ar`), 5s timeout, ID-based merge, and 24h XDG cache with background refresh
+  - [x] Implement title normalization (strip `"Radio "` / `"---"` noise while retaining raw names for search), thematic vs reciter classification, and `http:`/`https:` custom station URL validation
+  - [x] Implement category filtering (`all`, `favorites`, `recent`, `reciter`, `thematic`, `custom`) and fuzzy search matching across `nameEn`, `rawNameEn`, and `nameAr`
+  - [x] Write `tests/catalog.test.ts` covering API merge, title cleanup, Arabic toggle, thematic classification, offline fallback, custom validation, and fuzzy search
 - **Exit Criteria**: Station lookup, prefix cleanup, thematic/reciter categorization, Arabic/English switching, and fuzzy search operate seamlessly both online and offline.
 
 ---
