@@ -1,0 +1,28 @@
+{
+  "name": "quraa",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "quraa": "./src/cli.ts"
+  },
+  "scripts": {
+    "start": "bun run src/cli.ts",
+    "dev": "bun run --watch src/cli.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@opentui/core": "^0.9.9",
+    "@opentui/keymap": "latest",
+    "@opentui/solid": "^0.9.9",
+    "solid-js": "^1.9.18"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.4",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "bun": ">=1.3.14"
+  }
+}
