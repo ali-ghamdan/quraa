@@ -1,14 +1,22 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { testRender } from "@opentui/solid"
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { resolvePaths } from "../src/core/paths.ts"
 import { App } from "../src/ui/App.tsx"
 
 let setup: Awaited<ReturnType<typeof testRender>> | null = null
+const tempDirs: string[] = []
 
 afterEach(async () => {
   if (setup) {
     await setup.dispose()
     setup = null
+  }
+  while (tempDirs.length > 0) {
+    const dir = tempDirs.pop()
+    if (dir) rmSync(dir, { recursive: true, force: true })
   }
 })
 
@@ -43,12 +51,31 @@ describe("resolvePaths", () => {
 })
 
 describe("App baseline", () => {
-  test("renders Quraa foundation view via OpenTUI Solid", async () => {
-    setup = await testRender(App, { width: 80, height: 24 })
+  test("renders Quraa workspace via OpenTUI Solid", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "quraa-baseline-"))
+    tempDirs.push(dir)
+    const testPaths = resolvePaths(
+      {
+        HOME: dir,
+        XDG_CONFIG_HOME: join(dir, "cfg"),
+        XDG_CACHE_HOME: join(dir, "cache"),
+        XDG_STATE_HOME: join(dir, "state"),
+        XDG_RUNTIME_DIR: join(dir, "run"),
+      },
+      1000,
+    )
+    const offlineFetch = (() =>
+      Promise.reject(new Error("offline test"))) as unknown as typeof fetch
+
+    setup = await testRender(
+      () => <App paths={testPaths} fetchImpl={offlineFetch} />,
+      { width: 80, height: 24 },
+    )
     await setup.renderOnce()
     const frame = setup.captureCharFrame()
 
     expect(frame).toContain("Quraa")
-    expect(frame).toContain("OpenTUI Solid + mpv foundation ready")
+    expect(frame).toContain("1:All")
+    expect(frame).toContain("IDLE")
   })
 })

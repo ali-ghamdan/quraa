@@ -42,13 +42,13 @@
 ## Milestone 4: OpenTUI Interface & Interaction Polish
 - **Goal**: Implement the responsive two-region `@opentui/solid` interface featuring adaptive dark/light WCAG-verified color tokens, layered `@opentui/keymap/solid` navigation, deterministic UI/playback state handling, Help and Add Custom Station modals, undoable custom deletion, and clean terminal restoration on exit.
 - **Tasks**:
-  - [ ] Create `src/ui/theme.ts` with measured WCAG 2.2 dark & light semantic token palettes (`bgBase`, `bgSurface`, `bgSelected`, `borderSubtle`, `borderInteractive`, `accent`, `textPrimary`, `textSecondary`, `textMuted`, `fav`, `danger`) reactive to `renderer.themeMode`
-  - [ ] Create `src/ui/keymap.ts` using `@opentui/keymap/solid` with layered `browse`, `search`, and `modal` bindings (`j/k`/arrows, `g/G`, `/`, `Enter`, `Space`/`p`, `Tab`/`1`–`6`, `+/-`/`h/l`, `m`, `f`, `t`, `a`, `+`/`d`/`u`, `?`, `q`, `Q`)
-  - [ ] Build `src/ui/components/HeaderBar.tsx` with brand header, offline/live catalog pill, `EN`/`AR` indicator, focus-bordered search `<input>`, and responsive category tabs
-  - [ ] Build `src/ui/components/StationList.tsx` using `<scrollbox>`, `<For>`, `scrollChildIntoView`, `▶`/`★` row glyphs, nested `<text>` modifiers, and actionable empty states per tab/query
-  - [ ] Build `src/ui/components/NowPlayingBar.tsx` with paired glyph+label status badges, optional reduced-motion-safe spinner (`--no-motion`), live ICY metadata, tabular volume/sleep countdown (`075%`, `29:45`), and responsive footer hints / undo toast slot
-  - [ ] Build `src/ui/components/Modals.tsx` using `<Portal>` overlays for Help (`?`) and Add Custom Station (`+`) with inline validation, `Esc` close, and focus restoration
-  - [ ] Wire `src/ui/App.tsx` with explicit `UiMode` + `PlaybackState` state machine, live daemon reattach on startup, last-station highlight (`--resume` auto-play), 6s custom-delete undo toast, 1s sleep countdown tick, and `renderer.destroy()` clean exit (`q` detach / `Q` stop)
+  - [x] Create `src/ui/theme.ts` with measured WCAG 2.2 dark & light semantic token palettes (`bgBase`, `bgSurface`, `bgSelected`, `borderSubtle`, `borderInteractive`, `accent`, `textPrimary`, `textSecondary`, `textMuted`, `fav`, `danger`) reactive to `renderer.themeMode`
+  - [x] Create `src/ui/keymap.ts` using `@opentui/keymap/solid` with layered `browse`, `search`, and `modal` bindings (`j/k`/arrows, `g/G`, `/`, `Enter`, `Space`/`p`, `Tab`/`1`–`6`, `+/-`/`h/l`, `m`, `f`, `t`, `a`, `+`/`d`/`u`, `?`, `q`, `Q`)
+  - [x] Build `src/ui/components/HeaderBar.tsx` with brand header, offline/live catalog pill, `EN`/`AR` indicator, focus-bordered search `<input>`, and responsive category tabs
+  - [x] Build `src/ui/components/StationList.tsx` using `<scrollbox>`, `<For>`, `scrollChildIntoView`, `▶`/`★` row glyphs, nested `<text>` modifiers, and actionable empty states per tab/query
+  - [x] Build `src/ui/components/NowPlayingBar.tsx` with paired glyph+label status badges, optional reduced-motion-safe spinner (`--no-motion`), live ICY metadata, tabular volume/sleep countdown (`075%`, `29:45`), and responsive footer hints / undo toast slot
+  - [x] Build `src/ui/components/Modals.tsx` using `<Portal>` overlays for Help (`?`) and Add Custom Station (`+`) with inline validation, `Esc` close, and focus restoration
+  - [x] Wire `src/ui/App.tsx` with explicit `UiMode` + `PlaybackState` state machine, live daemon reattach on startup, last-station highlight (`--resume` auto-play), 6s custom-delete undo toast, 1s sleep countdown tick, and `renderer.destroy()` clean exit (`q` detach / `Q` stop)
 - **Exit Criteria**: All user flows work keyboard-only without layout clipping across narrow (`60×16`), standard (`80×24`), and wide (`140×40`) terminals, with color always paired with text/glyph cues.
 
 ---
