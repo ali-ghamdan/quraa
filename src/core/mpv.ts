@@ -12,9 +12,9 @@ const DEFAULT_SLEEP_SCRIPT_PATH = fileURLToPath(
 
 const OBSERVED_PROPERTIES = [
   "pause",
-  "core-idle",
   "idle-active",
   "paused-for-cache",
+  "core-idle",
   "volume",
   "mute",
   "media-title",
@@ -420,12 +420,31 @@ export class MpvClient {
       ),
     )
 
-    // Hydrate current media title if playing cleanly from an earlier session
-    const forced = await this.getProperty<string>("force-media-title").catch(
-      () => null,
-    )
-    if (typeof forced === "string" && forced.trim()) {
-      this.signals.forcedTitle = forced.trim()
+    // Hydrate initial properties deterministically in order before returning from connect()
+    const initialResults = await Promise.allSettled([
+      ...OBSERVED_PROPERTIES.map((prop) => this.getProperty(prop)),
+      this.getProperty<string>("force-media-title"),
+    ])
+
+    let changed = false
+    for (let i = 0; i < OBSERVED_PROPERTIES.length; i++) {
+      const res = initialResults[i]
+      if (res?.status === "fulfilled") {
+        if (this.applyPropertyChange(OBSERVED_PROPERTIES[i]!, res.value)) {
+          changed = true
+        }
+      }
+    }
+    const forcedRes = initialResults[OBSERVED_PROPERTIES.length]
+    if (
+      forcedRes?.status === "fulfilled" &&
+      typeof forcedRes.value === "string" &&
+      forcedRes.value.trim()
+    ) {
+      this.signals.forcedTitle = forcedRes.value.trim()
+      changed = true
+    }
+    if (changed) {
       this.emitSnapshot()
     }
   }

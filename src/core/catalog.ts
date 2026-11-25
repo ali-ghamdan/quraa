@@ -49,7 +49,7 @@ const FALLBACK_SEEDS: Array<{ id: number; en: string; ar: string; url: string }>
   { id: 17, en: "Radio Saad Al-Ghamdi", ar: "سعد الغامدي", url: "https://backup.qurango.net/radio/saad_alghamdi" },
   { id: 18, en: "Radio Saud Al-Shuraim", ar: "سعود الشريم", url: "https://backup.qurango.net/radio/saud_alshuraim" },
   { id: 30, en: "Radio Abdulbasit Abdulsamad", ar: "عبدالباسط عبدالصمد", url: "https://backup.qurango.net/radio/abdulbasit_abdulsamad_mojawwad" },
-  { id: 32, en: "Radio Abdulbasit Abdulsamad", ar: "عبدالباسط عبدالصمد", url: "https://backup.qurango.net/radio/abdulbasit_abdulsamad" },
+  { id: 79, en: "Radio Mishary Alafasi", ar: "مشاري العفاسي", url: "https://backup.qurango.net/radio/mishary_alafasi" },
   { id: 52, en: "Radio Fares Abbad", ar: "فارس عباد", url: "https://backup.qurango.net/radio/fares_abbad" },
   { id: 53, en: "Radio Nasser Alqatami", ar: "ناصر القطامي", url: "https://backup.qurango.net/radio/nasser_alqatami" },
   { id: 58, en: "Radio Yasser Al-Dosari", ar: "ياسر الدوسري", url: "https://backup.qurango.net/radio/yasser_aldosari" },
@@ -205,6 +205,15 @@ async function writeCatalogCache(
     stations,
   }
   await atomicWriteJson(cacheFile, payload)
+}
+
+/** Resolve local stations immediately from custom list + cached catalog (or built-in fallback) without network I/O. */
+export async function loadLocalCatalog(paths: QuraaPaths): Promise<Station[]> {
+  const [custom, cache] = await Promise.all([
+    loadCustomStations(paths.customStationsFile),
+    readCatalogCache(paths.cacheStationsFile),
+  ])
+  return mergeCatalogWithCustom(cache ? cache.stations : FALLBACK_STATIONS, custom)
 }
 
 export async function loadCatalog(options: LoadCatalogOptions): Promise<LoadCatalogResult> {

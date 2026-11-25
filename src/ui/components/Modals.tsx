@@ -1,12 +1,61 @@
-import { useRenderer } from "@opentui/solid"
-import { Portal } from "@opentui/solid"
-import { For, Show } from "solid-js"
+import type { BoxRenderable } from "@opentui/core"
+import { Portal, useRenderer } from "@opentui/solid"
+import { For, type JSX, Show } from "solid-js"
 import type { ThemePalette } from "../theme.ts"
 
 export interface HelpModalProps {
   open: boolean
   theme: ThemePalette
   width: number
+}
+
+function ModalOverlay(props: {
+  open: boolean
+  modalWidth: number
+  title: string
+  theme: ThemePalette
+  children: JSX.Element
+}) {
+  const renderer = useRenderer()
+
+  return (
+    <Show when={props.open}>
+      <Portal
+        mount={renderer.root}
+        ref={(el) => {
+          const box = el as BoxRenderable
+          box.position = "absolute"
+          box.top = 0
+          box.left = 0
+          box.width = "100%"
+          box.height = "100%"
+          box.zIndex = 50
+        }}
+      >
+        <box
+          width="100%"
+          height="100%"
+          justifyContent="center"
+          alignItems="center"
+        >
+          <box
+            width={props.modalWidth}
+            border
+            borderStyle="rounded"
+            borderColor={props.theme.accent}
+            backgroundColor={props.theme.bgSurface}
+            title={props.title}
+            paddingX={2}
+            paddingY={1}
+            flexDirection="column"
+            gap={1}
+          >
+            {props.children}
+          </box>
+        </box>
+      </Portal>
+    </Show>
+  )
 }
 
 const HELP_GROUPS = [
@@ -44,57 +93,36 @@ const HELP_GROUPS = [
 ] as const
 
 export function HelpModal(props: HelpModalProps) {
-  const renderer = useRenderer()
   const modalWidth = () => Math.min(68, Math.max(44, props.width - 4))
 
   return (
-    <Show when={props.open}>
-      <Portal mount={renderer.root}>
-        <box
-          position="absolute"
-          top={0}
-          left={0}
-          width="100%"
-          height="100%"
-          justifyContent="center"
-          alignItems="center"
-        >
-          <box
-            width={modalWidth()}
-            border
-            borderStyle="rounded"
-            borderColor={props.theme.accent}
-            backgroundColor={props.theme.bgSurface}
-            title=" Keyboard Shortcuts "
-            paddingX={2}
-            paddingY={1}
-            flexDirection="column"
-            gap={1}
-          >
-            <For each={[...HELP_GROUPS]}>
-              {(group) => (
-                <box flexDirection="column">
-                  <text fg={props.theme.accent}>
-                    <strong>{group.title}</strong>
+    <ModalOverlay
+      open={props.open}
+      modalWidth={modalWidth()}
+      title=" Keyboard Shortcuts "
+      theme={props.theme}
+    >
+      <For each={[...HELP_GROUPS]}>
+        {(group) => (
+          <box flexDirection="column">
+            <text fg={props.theme.accent}>
+              <strong>{group.title}</strong>
+            </text>
+            <For each={[...group.items]}>
+              {([keys, desc]) => (
+                <box flexDirection="row">
+                  <text fg={props.theme.textPrimary}>
+                    <strong>{keys.padEnd(18, " ")}</strong>
                   </text>
-                  <For each={[...group.items]}>
-                    {([keys, desc]) => (
-                      <box flexDirection="row">
-                        <text fg={props.theme.textPrimary}>
-                          <strong>{keys.padEnd(18, " ")}</strong>
-                        </text>
-                        <text fg={props.theme.textSecondary}>{desc}</text>
-                      </box>
-                    )}
-                  </For>
+                  <text fg={props.theme.textSecondary}>{desc}</text>
                 </box>
               )}
             </For>
-            <text fg={props.theme.textMuted}>Press Esc or ? to close</text>
           </box>
-        </box>
-      </Portal>
-    </Show>
+        )}
+      </For>
+      <text fg={props.theme.textMuted}>Press Esc or ? to close</text>
+    </ModalOverlay>
   )
 }
 
@@ -113,93 +141,72 @@ export interface AddCustomModalProps {
 }
 
 export function AddCustomModal(props: AddCustomModalProps) {
-  const renderer = useRenderer()
   const modalWidth = () => Math.min(64, Math.max(46, props.width - 4))
 
   return (
-    <Show when={props.open}>
-      <Portal mount={renderer.root}>
-        <box
-          position="absolute"
-          top={0}
-          left={0}
-          width="100%"
-          height="100%"
-          justifyContent="center"
-          alignItems="center"
+    <ModalOverlay
+      open={props.open}
+      modalWidth={modalWidth()}
+      title=" Add Custom Station "
+      theme={props.theme}
+    >
+      <box flexDirection="column">
+        <text
+          fg={
+            props.focusField === "name"
+              ? props.theme.accent
+              : props.theme.textSecondary
+          }
         >
-          <box
-            width={modalWidth()}
-            border
-            borderStyle="rounded"
-            borderColor={props.theme.accent}
-            backgroundColor={props.theme.bgSurface}
-            title=" Add Custom Station "
-            paddingX={2}
-            paddingY={1}
-            flexDirection="column"
-            gap={1}
-          >
-            <box flexDirection="column">
-              <text
-                fg={
-                  props.focusField === "name"
-                    ? props.theme.accent
-                    : props.theme.textSecondary
-                }
-              >
-                <strong>Name</strong>
-              </text>
-              <input
-                focused={props.focusField === "name"}
-                value={props.name}
-                placeholder="e.g. Makkah Live FM"
-                onInput={props.onNameInput}
-                onSubmit={props.onNameSubmit}
-                backgroundColor={props.theme.bgBase}
-                focusedBackgroundColor={props.theme.bgSelected}
-                textColor={props.theme.textPrimary}
-                placeholderColor={props.theme.textMuted}
-                cursorColor={props.theme.accent}
-              />
-            </box>
+          <strong>Name</strong>
+        </text>
+        <input
+          focused={props.focusField === "name"}
+          value={props.name}
+          placeholder="e.g. Makkah Live FM"
+          onInput={props.onNameInput}
+          onSubmit={props.onNameSubmit}
+          backgroundColor={props.theme.bgBase}
+          focusedBackgroundColor={props.theme.bgSelected}
+          textColor={props.theme.textPrimary}
+          placeholderColor={props.theme.textMuted}
+          cursorColor={props.theme.accent}
+        />
+      </box>
 
-            <box flexDirection="column">
-              <text
-                fg={
-                  props.focusField === "url"
-                    ? props.theme.accent
-                    : props.theme.textSecondary
-                }
-              >
-                <strong>Stream URL (http:// or https://)</strong>
-              </text>
-              <input
-                focused={props.focusField === "url"}
-                value={props.url}
-                placeholder="https://stream.example.com/quran.mp3"
-                onInput={props.onUrlInput}
-                onSubmit={props.onUrlSubmit}
-                backgroundColor={props.theme.bgBase}
-                focusedBackgroundColor={props.theme.bgSelected}
-                textColor={props.theme.textPrimary}
-                placeholderColor={props.theme.textMuted}
-                cursorColor={props.theme.accent}
-              />
-            </box>
+      <box flexDirection="column">
+        <text
+          fg={
+            props.focusField === "url"
+              ? props.theme.accent
+              : props.theme.textSecondary
+          }
+        >
+          <strong>Stream URL (http:// or https://)</strong>
+        </text>
+        <input
+          focused={props.focusField === "url"}
+          value={props.url}
+          placeholder="https://stream.example.com/quran.mp3"
+          onInput={props.onUrlInput}
+          onSubmit={props.onUrlSubmit}
+          backgroundColor={props.theme.bgBase}
+          focusedBackgroundColor={props.theme.bgSelected}
+          textColor={props.theme.textPrimary}
+          placeholderColor={props.theme.textMuted}
+          cursorColor={props.theme.accent}
+        />
+      </box>
 
-            <Show when={props.error}>
-              <text fg={props.theme.danger}>
-                <strong>✕ {props.error}</strong>
-              </text>
-            </Show>
+      <Show when={props.error}>
+        <text fg={props.theme.danger}>
+          <strong>✕ {props.error}</strong>
+        </text>
+      </Show>
 
-            <text fg={props.theme.textMuted}>
-              Tab Switch field · Enter Save station · Esc Cancel
-            </text>
-          </box>
-        </box>
-      </Portal>
-    </Show>
+      <text fg={props.theme.textMuted}>
+        Tab Switch field · Enter Save station · Esc Cancel
+      </text>
+    </ModalOverlay>
   )
 }

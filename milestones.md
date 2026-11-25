@@ -56,10 +56,10 @@
 ## Milestone 5: Headless CLI Control
 - **Goal**: Expose full background daemon control from the terminal via `quraa` subcommands (`--resume`, `play`, `toggle`, `stop`, `next`, `prev`, `vol`, `status --json`).
 - **Tasks**:
-  - [ ] Create `src/cli.ts` (`#!/usr/bin/env bun`) routing TUI startup (`quraa`, `--resume`, `--no-motion`) vs headless commands
-  - [ ] Implement `quraa play <query>` with fuzzy station matching, daemon launch, and confirmation output
-  - [ ] Implement `quraa toggle`, `quraa stop`, `quraa next`, `quraa prev`, and `quraa vol <0-100|+n|-n>` with state persistence
-  - [ ] Implement `quraa status [--json]` outputting human summary or Waybar/Polybar-ready JSON (`state`, `stationId`, `name`, `nameAr`, `metadata`, `volume`, `muted`, `sleepRemainingSec`)
+  - [x] Create `src/cli.ts` (`#!/usr/bin/env bun`) routing TUI startup (`quraa`, `--resume`, `--no-motion`) vs headless commands
+  - [x] Implement `quraa play <query>` with fuzzy station matching, daemon launch, and confirmation output
+  - [x] Implement `quraa toggle`, `quraa stop`, `quraa next`, `quraa prev`, and `quraa vol <0-100|+n|-n>` with state persistence
+  - [x] Implement `quraa status [--json]` outputting human summary or Waybar/Polybar-ready JSON (`state`, `stationId`, `name`, `nameAr`, `metadata`, `volume`, `muted`, `sleepRemainingSec`)
 - **Exit Criteria**: Scripts and status bars (Waybar/Polybar/tmux) can inspect live playback/timer JSON and control audio without launching the TUI.
 
 ---
@@ -67,7 +67,7 @@
 ## Milestone 6: Verification & Ship Readiness
 - **Goal**: Validate full reliability across unit tests, live `mpv` IPC integration, headless `testRender` snapshots/stress states, and interactive manual playback checks.
 - **Tasks**:
-  - [ ] Write `tests/tui.test.tsx` using `@opentui/solid` `testRender` covering `state-machine` + `break` matrix (`60×16`, `80×24`, `140×40`, idle, playing+ICY, buffering/reconnecting, error, empty tabs, zero search hits + `Esc`, Arabic toggle, Add Custom modal validation, Delete + `u` undo, Help modal focus restore)
-  - [ ] Run `bunx tsc --noEmit` and full `bun test` suite and fix all failures or snapshot regressions
-  - [ ] Perform manual end-to-end verification (`quraa`, `playerctl`, sleep timer `t`, detach `q`, `quraa status --json`, reattach, `Q` clean exit) and create walkthrough summary
+  - [x] Write `tests/tui.test.tsx` using `@opentui/solid` `testRender` covering `state-machine` + `break` matrix (`60×16`, `80×24`, `140×40`, idle, playing+ICY, buffering/reconnecting, error, empty tabs, zero search hits + `Esc`, Arabic toggle, Add Custom modal validation, Delete + `u` undo, Help modal focus restore)
+  - [x] Run `bunx tsc --noEmit` and full `bun test` suite and fix all failures or snapshot regressions
+  - [x] Perform manual end-to-end verification (`quraa`, `playerctl`, sleep timer `t`, detach `q`, `quraa status --json`, reattach, `Q` clean exit) and create walkthrough summary
 - **Exit Criteria**: Full test suite, typecheck, and end-to-end daemon attach/detach/sleep-timer/MPRIS checks pass with zero regressions.
