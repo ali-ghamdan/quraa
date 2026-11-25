@@ -29,12 +29,12 @@
 ## Milestone 3: Detached `mpv` Daemon & Sleep Timer
 - **Goal**: Run `mpv` persistently in the background over a native Bun Unix IPC socket with live state/ICY metadata observation, stream auto-reconnect, MPRIS media key support, and an embedded Lua sleep timer that outlives TUI detachment.
 - **Tasks**:
-  - [ ] Write `assets/sleep-timer.lua` handling `script-message quraa-sleep <seconds>` (`0` cancels), auto-quitting `mpv` on expiry, and syncing `user-data/quraa/sleep-until`
-  - [ ] Implement daemon detection (`get_property pid` + stale socket cleanup) and detached `mpv` spawning in `src/core/mpv.ts` (`--no-config`, `--load-scripts=no`, `--no-video`, `--audio-display=no`, `--idle=yes`, `--cache=yes`, `--demuxer-max-bytes=2MiB`, `--stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_delay_max=5`, conditional `/usr/lib64/mpv/mpris.so`, `sleep-timer.lua`)
-  - [ ] Build native `Bun.connect({ unix })` JSON IPC client with `request_id` correlation and line-delimited message parsing
-  - [ ] Subscribe to `observe_property` (`pause`, `core-idle`, `idle-active`, `paused-for-cache`, `volume`, `mute`, `media-title`, `metadata`, `path`, `user-data/quraa/sleep-until`) and `start-file`/`end-file` events to drive `PlaybackState`
-  - [ ] Implement playback & control methods (`playStation` with `force-media-title`, `togglePause`, `setVolume`, `toggleMute`, `setSleepTimer`, `stopDaemon`)
-  - [ ] Write `tests/mpv-ipc.test.ts` testing real `mpv --idle=yes` IPC socket communication, `sleep-timer.lua` countdown property updates, and clean daemon shutdown
+  - [x] Write `assets/sleep-timer.lua` handling `script-message quraa-sleep <seconds>` (`0` cancels), auto-quitting `mpv` on expiry, and syncing `user-data/quraa/sleep-until`
+  - [x] Implement daemon detection (`get_property pid` + stale socket cleanup) and detached `mpv` spawning in `src/core/mpv.ts` (`--no-config`, `--load-scripts=no`, `--no-video`, `--audio-display=no`, `--idle=yes`, `--cache=yes`, `--demuxer-max-bytes=2MiB`, `--stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_delay_max=5`, conditional `/usr/lib64/mpv/mpris.so`, `sleep-timer.lua`)
+  - [x] Build native `Bun.connect({ unix })` JSON IPC client with `request_id` correlation and line-delimited message parsing
+  - [x] Subscribe to `observe_property` (`pause`, `core-idle`, `idle-active`, `paused-for-cache`, `volume`, `mute`, `media-title`, `metadata`, `path`, `user-data/quraa/sleep-until`) and `start-file`/`end-file` events to drive `PlaybackState`
+  - [x] Implement playback & control methods (`playStation` with `force-media-title`, `togglePause`, `setVolume`, `toggleMute`, `setSleepTimer`, `stopDaemon`)
+  - [x] Write `tests/mpv-ipc.test.ts` testing real `mpv --idle=yes` IPC socket communication, `sleep-timer.lua` countdown property updates, and clean daemon shutdown
 - **Exit Criteria**: TUI and scripts can start, attach to, control, detach from, and stop the daemon cleanly while sleep countdown and playback state stay synchronized across reattachments.
 
 ---
