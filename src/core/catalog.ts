@@ -1,3 +1,4 @@
+import { formatDisplayText } from "./arabic.ts"
 import type { QuraaPaths } from "./paths.ts"
 import {
   atomicWriteJson,
@@ -6,7 +7,7 @@ import {
   loadCustomStations,
   validateStationUrl,
 } from "./store.ts"
-import type { CategoryTab, PersistedState, Station } from "./types.ts"
+import type { AppLanguage, CategoryTab, PersistedState, Station } from "./types.ts"
 
 export const MP3QURAN_ENG_URL = "https://www.mp3quran.net/api/v3/radios?language=eng"
 export const MP3QURAN_AR_URL = "https://www.mp3quran.net/api/v3/radios?language=ar"
@@ -365,7 +366,18 @@ export function filterStations(
   return fuzzyMatchStations(tabFiltered, query)
 }
 
-export function getStationDisplayName(station: Station, arabicNames: boolean): string {
-  if (arabicNames && station.nameAr) return station.nameAr
-  return station.nameEn
+export function getStationDisplayName(
+  station: Station,
+  languageOrArabic: AppLanguage | boolean,
+): string {
+  const lang: AppLanguage =
+    typeof languageOrArabic === "boolean"
+      ? languageOrArabic
+        ? "ar"
+        : "en"
+      : languageOrArabic
+  if (lang !== "en" && station.nameAr) {
+    return formatDisplayText(station.nameAr, lang)
+  }
+  return formatDisplayText(station.nameEn, lang)
 }

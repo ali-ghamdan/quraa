@@ -53,8 +53,18 @@ describe("store", () => {
     const paths = makeTempPaths()
     expect(await loadState(paths.stateFile)).toEqual(DEFAULT_PERSISTED_STATE)
 
-    await saveState(paths.stateFile, { ...DEFAULT_PERSISTED_STATE, volume: 220, arabicNames: true })
-    expect((await loadState(paths.stateFile)).volume).toBe(150)
+    await saveState(paths.stateFile, {
+      ...DEFAULT_PERSISTED_STATE,
+      volume: 220,
+      language: "ar-fixed",
+    })
+    const loaded = await loadState(paths.stateFile)
+    expect(loaded.volume).toBe(150)
+    expect(loaded.language).toBe("ar-fixed")
+
+    // Legacy boolean arabicNames migrates cleanly to language: "ar"
+    writeFileSync(paths.stateFile, JSON.stringify({ volume: 70, arabicNames: true }))
+    expect((await loadState(paths.stateFile)).language).toBe("ar")
 
     writeFileSync(paths.stateFile, "{corrupt json")
     expect(await loadState(paths.stateFile)).toEqual(DEFAULT_PERSISTED_STATE)
@@ -234,7 +244,7 @@ describe("catalog loading, cache & search", () => {
       ...DEFAULT_PERSISTED_STATE,
       favorites: ["69"],
       recents: ["108", "3"],
-      arabicNames: true,
+      language: "ar" as const,
     }
     const custom = createCustomStation({
       name: "Masjid Stream",
@@ -260,9 +270,10 @@ describe("catalog loading, cache & search", () => {
     const arMatches = filterStations(stations, "all", "احمد العجمي", state)
     expect(arMatches[0]?.id).toBe("3")
 
-    // Display name helper respects arabicNames and falls back to nameEn when absent
-    expect(getStationDisplayName(arMatches[0]!, true)).toBe("أحمد العجمي")
-    expect(getStationDisplayName(arMatches[0]!, false)).toBe("Ahmad Al-Ajmy")
-    expect(getStationDisplayName(custom.station, true)).toBe("Masjid Stream")
+    // Display name helper respects en / ar / ar-fixed modes and falls back to nameEn when absent
+    expect(getStationDisplayName(arMatches[0]!, "ar")).toBe("أحمد العجمي")
+    expect(getStationDisplayName(arMatches[0]!, "ar-fixed")).not.toBe("أحمد العجمي")
+    expect(getStationDisplayName(arMatches[0]!, "en")).toBe("Ahmad Al-Ajmy")
+    expect(getStationDisplayName(custom.station, "ar")).toBe("Masjid Stream")
   })
 })

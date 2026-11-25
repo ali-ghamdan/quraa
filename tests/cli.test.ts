@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { type CliMpvClient, type CliStatusPayload, runCli } from "../src/cli.ts"
 import { FALLBACK_STATIONS } from "../src/core/catalog.ts"
+import type { PlayStationOptions } from "../src/core/mpv.ts"
 import { type QuraaPaths, resolvePaths } from "../src/core/paths.ts"
 import { atomicWriteJson, loadState, saveState } from "../src/core/store.ts"
 import type { PlaybackSnapshot, Station } from "../src/core/types.ts"
@@ -31,6 +32,9 @@ class FakeCliClient implements CliMpvClient {
       state: "stopped",
       stationId: null,
       title: null,
+      trackTitle: null,
+      author: null,
+      artUrl: null,
       metadata: null,
       volume: 80,
       muted: false,
@@ -60,13 +64,16 @@ class FakeCliClient implements CliMpvClient {
     this.isConnected = false
   }
 
-  async playStation(station: Station, displayName?: string): Promise<void> {
+  async playStation(station: Station, options?: string | PlayStationOptions): Promise<void> {
+    const opts = typeof options === "string" ? { displayName: options } : (options ?? {})
     this.calls.push(`playStation:${station.id}`)
     this.snapshot = {
       ...this.snapshot,
       state: "playing",
       stationId: station.id,
-      title: displayName ?? station.nameEn,
+      title: opts.displayName ?? station.nameEn,
+      author: opts.author ?? null,
+      artUrl: opts.artUrl ?? null,
     }
   }
 
@@ -202,7 +209,7 @@ describe("CLI router", () => {
     await saveState(paths.stateFile, {
       volume: 75,
       muted: false,
-      arabicNames: false,
+      language: "en",
       favorites: [],
       recents: [s0.id],
       lastStationId: s0.id,
@@ -242,7 +249,7 @@ describe("CLI router", () => {
     await saveState(paths.stateFile, {
       volume: 80,
       muted: false,
-      arabicNames: false,
+      language: "en",
       favorites: [s0!.id, s2!.id],
       recents: [s0!.id],
       lastStationId: s0!.id,
@@ -261,7 +268,7 @@ describe("CLI router", () => {
     await saveState(paths.stateFile, {
       volume: 80,
       muted: false,
-      arabicNames: false,
+      language: "en",
       favorites: [s1!.id, s2!.id],
       recents: [s0!.id],
       lastStationId: s0!.id,
@@ -277,7 +284,7 @@ describe("CLI router", () => {
     await saveState(paths.stateFile, {
       volume: 70,
       muted: false,
-      arabicNames: false,
+      language: "en",
       favorites: [],
       recents: [],
       lastStationId: null,
@@ -311,7 +318,7 @@ describe("CLI router", () => {
     await saveState(paths.stateFile, {
       volume: 65,
       muted: true,
-      arabicNames: false,
+      language: "en",
       favorites: [],
       recents: [s0.id],
       lastStationId: s0.id,
@@ -320,20 +327,26 @@ describe("CLI router", () => {
     const idleRun = createHarness({ alive: false, paths, now: 1_000_000 })
     expect(await idleRun.run(["status", "--json"])).toBe(0)
     const idleJson = JSON.parse(idleRun.out[0]!) as CliStatusPayload
-    expect(idleJson).toEqual({
+    expect(idleJson).toMatchObject({
       state: "stopped",
       stationId: s0.id,
       name: s0.nameEn,
       nameAr: s0.nameAr ?? null,
+      trackTitle: null,
+      author: null,
       metadata: null,
       volume: 65,
       muted: true,
       sleepRemainingSec: 0,
     })
+    expect(typeof idleJson.artUrl).toBe("string")
 
     const live = new FakeCliClient({
       state: "playing",
       stationId: s0.id,
+      trackTitle: "Al-Baqarah",
+      author: s0.nameEn,
+      artUrl: "file:///tmp/art.png",
       metadata: "Surah Al-Baqarah",
       volume: 90,
       muted: false,
@@ -347,6 +360,9 @@ describe("CLI router", () => {
       stationId: s0.id,
       name: s0.nameEn,
       nameAr: s0.nameAr ?? null,
+      trackTitle: "Al-Baqarah",
+      author: s0.nameEn,
+      artUrl: "file:///tmp/art.png",
       metadata: "Surah Al-Baqarah",
       volume: 90,
       muted: false,

@@ -1,15 +1,23 @@
 #!/usr/bin/env bun
 
+import { formatDisplayText } from "./core/arabic.ts"
 import {
   fuzzyMatchStations,
   getStationDisplayName,
   loadCatalog,
   loadLocalCatalog,
 } from "./core/catalog.ts"
-import { isDaemonAlive, MpvClient } from "./core/mpv.ts"
+import { loadImageConfig, resolveStationArtUrl } from "./core/images.ts"
+import { isDaemonAlive, MpvClient, type PlayStationOptions } from "./core/mpv.ts"
 import { type QuraaPaths, resolvePaths } from "./core/paths.ts"
 import { loadState, recordRecent, saveState } from "./core/store.ts"
-import type { PersistedState, PlaybackSnapshot, PlaybackState, Station } from "./core/types.ts"
+import type {
+  AppLanguage,
+  PersistedState,
+  PlaybackSnapshot,
+  PlaybackState,
+  Station,
+} from "./core/types.ts"
 
 export const CLI_VERSION = "0.1.0"
 
@@ -19,7 +27,7 @@ export interface CliMpvClient {
   connect(): Promise<void>
   ensureConnected(): Promise<number>
   disconnect(): void
-  playStation(station: Station, displayName?: string): Promise<void>
+  playStation(station: Station, options?: string | PlayStationOptions): Promise<void>
   togglePause(): Promise<void>
   setVolume(volume: number): Promise<number>
   stopDaemon(): Promise<void>
@@ -30,6 +38,9 @@ export interface CliStatusPayload {
   stationId: string | null
   name: string | null
   nameAr: string | null
+  trackTitle: string | null
+  author: string | null
+  artUrl: string | null
   metadata: string | null
   volume: number
   muted: boolean
@@ -106,7 +117,11 @@ function formatDurationShort(totalSec: number): string {
   return `${mins}m`
 }
 
-function formatHumanStatus(payload: CliStatusPayload, displayName: string | null): string {
+function formatHumanStatus(
+  payload: CliStatusPayload,
+  displayName: string | null,
+  language: AppLanguage,
+): string {
   const label = payload.state.toUpperCase()
   const volText = `VOL ${String(payload.volume).padStart(3, "0")}%`
   const extras: string[] = [volText]
@@ -114,9 +129,14 @@ function formatHumanStatus(payload: CliStatusPayload, displayName: string | null
   if (payload.sleepRemainingSec > 0) {
     extras.push(`SLEEP ${formatDurationShort(payload.sleepRemainingSec)}`)
   }
-  const stationPart = displayName ?? payload.name
-  const head = stationPart ? `${label}: ${stationPart} (${extras.join(", ")})` : `${label} (${extras.join(", ")})`
-  return payload.metadata ? `${head} — ${payload.metadata}` : head
+  const stationPart =
+    displayName ?? (payload.name ? formatDisplayText(payload.name, language) : null)
+  const head = stationPart
+    ? `${label}: ${stationPart} (${extras.join(", ")})`
+    : `${label} (${extras.join(", ")})`
+  return payload.metadata
+    ? `${head} — ${formatDisplayText(payload.metadata, language)}`
+    : head
 }
 
 async function defaultLaunchTui(options: {
@@ -142,11 +162,29 @@ async function playAndPersist(
   state: PersistedState,
   station: Station,
 ): Promise<string> {
-  const displayName = getStationDisplayName(station, state.arabicNames)
-  await client.playStation(station, displayName)
+  const imageConfig = loadImageConfig(paths)
+  // Pass logical UTF-8 metadata to mpv/MPRIS while returning terminal-shaped label for CLI stdout.
+  const logicalLabel =
+    state.language === "en" ? station.nameEn : (station.nameAr ?? station.nameEn)
+  const author =
+    station.category === "reciter"
+      ? state.language === "en"
+        ? station.nameEn
+        : (station.nameAr ?? station.nameEn)
+      : null
+  const artUrl = resolveStationArtUrl({
+    station,
+    author: station.category === "reciter" ? station.nameEn : null,
+    config: imageConfig,
+  })
+  await client.playStation(station, {
+    displayName: logicalLabel,
+    author,
+    artUrl,
+  })
   const nextState = recordRecent({ ...state, lastStationId: station.id }, station.id)
   await saveState(paths.stateFile, nextState)
-  return displayName
+  return getStationDisplayName(station, state.language)
 }
 
 export async function runCli(argv: string[], deps: CliDeps = {}): Promise<number> {
@@ -254,8 +292,8 @@ export async function runCli(argv: string[], deps: CliDeps = {}): Promise<number
         const stations = await loadLocalCatalog(paths)
         const active = activeId ? stations.find((s) => s.id === activeId) : undefined
         const label = active
-          ? getStationDisplayName(active, state.arabicNames)
-          : (snap.title ?? "stream")
+          ? getStationDisplayName(active, state.language)
+          : formatDisplayText(snap.title ?? "stream", state.language)
         stdout(`${wasPaused ? "Playing" : "Paused"}: ${label}`)
         return 0
       } finally {
@@ -386,10 +424,14 @@ export async function runCli(argv: string[], deps: CliDeps = {}): Promise<number
       loadLocalCatalog(paths),
       checkAlive(paths),
     ])
+    const imageConfig = loadImageConfig(paths)
 
     let playbackState: PlaybackState = "stopped"
     let stationId: string | null = state.lastStationId
     let fallbackTitle: string | null = null
+    let trackTitle: string | null = null
+    let author: string | null = null
+    let artUrl: string | null = null
     let metadata: string | null = null
     let volume = clampVol(state.volume)
     let muted = state.muted
@@ -403,6 +445,9 @@ export async function runCli(argv: string[], deps: CliDeps = {}): Promise<number
         playbackState = snap.state
         stationId = snap.stationId ?? state.lastStationId
         fallbackTitle = snap.title
+        trackTitle = snap.trackTitle
+        author = snap.author
+        artUrl = snap.artUrl
         metadata = snap.metadata
         volume = clampVol(snap.volume)
         muted = snap.muted
@@ -414,11 +459,22 @@ export async function runCli(argv: string[], deps: CliDeps = {}): Promise<number
     }
 
     const station = stationId ? stations.find((s) => s.id === stationId) : undefined
+    const resolvedArt =
+      artUrl ??
+      resolveStationArtUrl({
+        station,
+        author: author ?? (station?.category === "reciter" ? station.nameEn : null),
+        config: imageConfig,
+      })
+
     const payload: CliStatusPayload = {
       state: playbackState,
       stationId: stationId ?? null,
       name: station ? station.nameEn : fallbackTitle,
       nameAr: station?.nameAr ?? null,
+      trackTitle,
+      author,
+      artUrl: resolvedArt,
       metadata,
       volume,
       muted,
@@ -428,8 +484,8 @@ export async function runCli(argv: string[], deps: CliDeps = {}): Promise<number
     if (jsonMode) {
       stdout(JSON.stringify(payload))
     } else {
-      const displayName = station ? getStationDisplayName(station, state.arabicNames) : null
-      stdout(formatHumanStatus(payload, displayName))
+      const displayName = station ? getStationDisplayName(station, state.language) : null
+      stdout(formatHumanStatus(payload, displayName, state.language))
     }
     return 0
   }

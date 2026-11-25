@@ -1,5 +1,5 @@
 import { For, Show } from "solid-js"
-import type { CategoryTab } from "../../core/types.ts"
+import type { AppLanguage, CategoryTab } from "../../core/types.ts"
 import { CATEGORY_TABS, type ThemePalette } from "../theme.ts"
 
 export interface HeaderBarProps {
@@ -8,13 +8,24 @@ export interface HeaderBarProps {
   catalogSource: "network" | "cache" | "stale-cache" | "fallback"
   totalCount: number
   matchCount: number
-  arabicNames: boolean
+  language: AppLanguage
   activeTab: CategoryTab
   searchQuery: string
   searchFocused: boolean
   onSearchInput: (value: string) => void
   onSearchSubmit: () => void
   onSelectTab: (tab: CategoryTab) => void
+}
+
+function formatLanguageBadge(lang: AppLanguage, compact: boolean): string {
+  switch (lang) {
+    case "en":
+      return "EN"
+    case "ar":
+      return "AR"
+    case "ar-fixed":
+      return compact ? "FIX" : "AR-FIX"
+  }
 }
 
 function formatCatalogBadge(
@@ -64,8 +75,8 @@ export function HeaderBar(props: HeaderBarProps) {
           </text>
         </box>
         <box flexDirection="row">
-          <text fg={props.arabicNames ? props.theme.accent : props.theme.textSecondary}>
-            [{props.arabicNames ? "AR" : "EN"}]
+          <text fg={props.language !== "en" ? props.theme.accent : props.theme.textSecondary}>
+            [{formatLanguageBadge(props.language, compact())}]
           </text>
           <Show when={!compact()}>
             <text fg={props.theme.textMuted}> · ? Help</text>

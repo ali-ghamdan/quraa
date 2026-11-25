@@ -1,5 +1,6 @@
 import { Show } from "solid-js"
-import type { PlaybackSnapshot, PlaybackState } from "../../core/types.ts"
+import { formatDisplayText } from "../../core/arabic.ts"
+import type { AppLanguage, PlaybackSnapshot, PlaybackState } from "../../core/types.ts"
 import type { ThemePalette } from "../theme.ts"
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const
@@ -8,6 +9,7 @@ export interface NowPlayingBarProps {
   theme: ThemePalette
   width: number
   snapshot: PlaybackSnapshot
+  language: AppLanguage
   stationTitle: string | null
   sleepRemainingSec: number
   spinnerTick: number
@@ -84,10 +86,18 @@ export function NowPlayingBar(props: NowPlayingBarProps) {
     return wide() ? `VOL ${pct} ${formatVolumeBar(props.snapshot.volume)}` : `VOL ${pct}`
   }
 
-  const titleLine = () =>
-    props.stationTitle ??
-    props.snapshot.title ??
-    "Select a station and press Enter to listen"
+  const titleLine = () => {
+    const raw =
+      props.stationTitle ??
+      props.snapshot.title ??
+      "Select a station and press Enter to listen"
+    return formatDisplayText(raw, props.language)
+  }
+
+  const metadataLine = () =>
+    props.snapshot.metadata
+      ? formatDisplayText(props.snapshot.metadata, props.language)
+      : null
 
   const footerBanner = () => {
     if (props.undoMessage) {
@@ -104,12 +114,12 @@ export function NowPlayingBar(props: NowPlayingBarProps) {
     }
     if (props.width < 118) {
       return {
-        text: "j/k Move  Enter Play  Space Pause  / Search  t Sleep  ? Help  q Detach  Q Stop",
+        text: "j/k Move  Enter Play  Space Pause  / Search  t Sleep  ? Help  q Quit  Q Stop",
         color: props.theme.textMuted,
       }
     }
     return {
-      text: "j/k Move  Enter Play  Space Pause  / Search  Tab/1-6 Tabs  -/= Vol  f Fav  t Sleep  a AR/EN  + Add  ? Help  q Detach  Q Stop",
+      text: "j/k Move  Enter Play  Space Pause  / Search  Tab/1-6 Tabs  -/= Vol  f Fav  t Sleep  a EN/AR/Fix  + Add  ? Help  q Quit  Q Stop",
       color: props.theme.textMuted,
     }
   }
@@ -143,7 +153,7 @@ export function NowPlayingBar(props: NowPlayingBarProps) {
 
       <text fg={props.theme.textPrimary} wrapMode="word">
         <strong>{titleLine()}</strong>
-        <Show when={props.snapshot.metadata}> · {props.snapshot.metadata}</Show>
+        <Show when={metadataLine()}> · {metadataLine()}</Show>
       </text>
 
       <text fg={footerBanner().color} wrapMode="none">

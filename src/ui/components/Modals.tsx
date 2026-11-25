@@ -1,6 +1,7 @@
 import type { BoxRenderable } from "@opentui/core"
 import { Portal, useRenderer } from "@opentui/solid"
 import { For, type JSX, Show } from "solid-js"
+import type { QuitConfirmChoice } from "../../core/types.ts"
 import type { ThemePalette } from "../theme.ts"
 
 export interface HelpModalProps {
@@ -43,7 +44,7 @@ function ModalOverlay(props: {
             border
             borderStyle="rounded"
             borderColor={props.theme.accent}
-            backgroundColor={props.theme.bgSurface}
+            backgroundColor={props.theme.bgModal}
             title={props.title}
             paddingX={2}
             paddingY={1}
@@ -82,11 +83,11 @@ const HELP_GROUPS = [
     title: "Library & Session",
     items: [
       ["f", "Star / unstar favorite"],
-      ["a", "Toggle English / Arabic names"],
+      ["a", "Cycle language: EN / AR / AR-Fixed"],
       ["+ / n", "Add custom station URL"],
       ["d / u", "Delete custom / undo (6s)"],
       ["?", "Toggle this help"],
-      ["q", "Detach TUI (keeps playing)"],
+      ["q", "Quit dialog (Cancel / No / Yes)"],
       ["Q", "Stop daemon and quit"],
     ],
   },
@@ -206,6 +207,71 @@ export function AddCustomModal(props: AddCustomModalProps) {
 
       <text fg={props.theme.textMuted}>
         Tab Switch field · Enter Save station · Esc Cancel
+      </text>
+    </ModalOverlay>
+  )
+}
+
+export interface QuitConfirmModalProps {
+  open: boolean
+  theme: ThemePalette
+  width: number
+  stationTitle: string | null
+  focusedChoice: QuitConfirmChoice
+}
+
+const QUIT_BUTTONS: ReadonlyArray<{
+  id: QuitConfirmChoice
+  label: string
+}> = [
+  { id: "cancel", label: "Cancel" },
+  { id: "no", label: "No" },
+  { id: "yes", label: "Yes" },
+]
+
+export function QuitConfirmModal(props: QuitConfirmModalProps) {
+  const modalWidth = () => Math.min(54, Math.max(40, props.width - 4))
+
+  return (
+    <ModalOverlay
+      open={props.open}
+      modalWidth={modalWidth()}
+      title=" Stop Radio? "
+      theme={props.theme}
+    >
+      <text fg={props.theme.textPrimary}>
+        {props.stationTitle
+          ? `Stop playing "${props.stationTitle}" before exiting?`
+          : "Stop the background radio daemon before exiting?"}
+      </text>
+
+      <box flexDirection="row" justifyContent="center" gap={2}>
+        <For each={[...QUIT_BUTTONS]}>
+          {(btn) => {
+            const active = () => props.focusedChoice === btn.id
+            const activeColor = () =>
+              btn.id === "yes" ? props.theme.danger : props.theme.accent
+            return (
+              <box
+                paddingX={2}
+                border
+                borderStyle="rounded"
+                borderColor={active() ? activeColor() : props.theme.borderSubtle}
+                backgroundColor={active() ? props.theme.bgSelected : props.theme.bgModal}
+              >
+                <text fg={active() ? activeColor() : props.theme.textSecondary}>
+                  <Show when={active()} fallback={btn.label}>
+                    <strong>{btn.label}</strong>
+                  </Show>
+                </text>
+              </box>
+            )
+          }}
+        </For>
+      </box>
+
+      <text fg={props.theme.textMuted}>
+        ←/→/Tab Choose · Enter Confirm · y Yes · n No · Esc Cancel
       </text>
     </ModalOverlay>
   )

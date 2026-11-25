@@ -1,3 +1,4 @@
+import type { TerminalColors } from "@opentui/core"
 import { KeymapProvider } from "@opentui/keymap/solid"
 import { useRenderer, useTerminalDimensions } from "@opentui/solid"
 import {
@@ -7,12 +8,14 @@ import {
   onCleanup,
   onMount,
 } from "solid-js"
+import { formatDisplayText } from "../core/arabic.ts"
 import {
   FALLBACK_STATIONS,
   filterStations,
   getStationDisplayName,
   loadCatalog,
 } from "../core/catalog.ts"
+import { loadImageConfig, resolveStationArtUrl } from "../core/images.ts"
 import { isDaemonAlive, MpvClient } from "../core/mpv.ts"
 import { type QuraaPaths, resolvePaths } from "../core/paths.ts"
 import {
@@ -20,6 +23,7 @@ import {
   DEFAULT_PERSISTED_STATE,
   loadCustomStations,
   loadState,
+  nextLanguage,
   recordRecent,
   saveCustomStations,
   saveState,
@@ -30,15 +34,16 @@ import type {
   CategoryTab,
   PersistedState,
   PlaybackSnapshot,
+  QuitConfirmChoice,
   Station,
   UiMode,
 } from "../core/types.ts"
 import { HeaderBar } from "./components/HeaderBar.tsx"
-import { AddCustomModal, HelpModal } from "./components/Modals.tsx"
+import { AddCustomModal, HelpModal, QuitConfirmModal } from "./components/Modals.tsx"
 import { NowPlayingBar } from "./components/NowPlayingBar.tsx"
 import { StationList } from "./components/StationList.tsx"
 import { createQuraaKeymap, useQuraaBindings } from "./keymap.ts"
-import { CATEGORY_TABS, resolveThemePalette } from "./theme.ts"
+import { CATEGORY_TABS, resolveTerminalPalette } from "./theme.ts"
 
 export type MpvController = Pick<
   MpvClient,
@@ -62,17 +67,23 @@ export interface AppProps {
   autoResume?: boolean
   noMotion?: boolean
   initialCatalog?: Station[]
+  initialPalette?: TerminalColors | null
+  skipPaletteDetection?: boolean
   clientFactory?: (paths: QuraaPaths, state: PersistedState) => MpvController
   fetchImpl?: typeof fetch
 }
 
 const SLEEP_CYCLE_SECONDS = [0, 15 * 60, 30 * 60, 45 * 60, 60 * 60] as const
+const QUIT_CHOICES: readonly QuitConfirmChoice[] = ["cancel", "no", "yes"]
 
 function defaultSnapshot(state: PersistedState): PlaybackSnapshot {
   return {
     state: "stopped",
     stationId: state.lastStationId,
     title: null,
+    trackTitle: null,
+    author: null,
+    artUrl: null,
     metadata: null,
     volume: state.volume,
     muted: state.muted,
@@ -104,9 +115,13 @@ function QuraaShell(props: AppProps) {
   const renderer = useRenderer()
   const dimensions = useTerminalDimensions()
   const paths = props.paths ?? resolvePaths()
+  const imageConfig = loadImageConfig(paths)
 
   const [themeMode, setThemeMode] = createSignal(renderer.themeMode)
-  const theme = createMemo(() => resolveThemePalette(themeMode()))
+  const [terminalColors, setTerminalColors] = createSignal<TerminalColors | null>(
+    props.initialPalette ?? null,
+  )
+  const theme = createMemo(() => resolveTerminalPalette(themeMode(), terminalColors()))
 
   const [state, setState] = createSignal<PersistedState>(DEFAULT_PERSISTED_STATE)
   const [baseStations, setBaseStations] = createSignal<Station[]>(
@@ -133,6 +148,7 @@ function QuraaShell(props: AppProps) {
   const [customUrl, setCustomUrl] = createSignal("")
   const [customField, setCustomField] = createSignal<"name" | "url">("name")
   const [customError, setCustomError] = createSignal<string | null>(null)
+  const [quitChoice, setQuitChoice] = createSignal<QuitConfirmChoice>("no")
 
   const [undoState, setUndoState] = createSignal<{
     station: Station
@@ -169,8 +185,9 @@ function QuraaShell(props: AppProps) {
 
   const playingTitle = createMemo<string | null>(() => {
     const active = activeStation()
-    if (active) return getStationDisplayName(active, state().arabicNames)
-    return snapshot().title
+    if (active) return getStationDisplayName(active, state().language)
+    const rawTitle = snapshot().title
+    return rawTitle ? formatDisplayText(rawTitle, state().language) : null
   })
 
   const sleepRemainingSec = createMemo<number>(() => {
@@ -260,6 +277,8 @@ function QuraaShell(props: AppProps) {
         ...prev,
         state: "stopped",
         metadata: null,
+        trackTitle: null,
+        author: null,
         sleepUntil: 0,
       }))
     })
@@ -279,10 +298,26 @@ function QuraaShell(props: AppProps) {
       if (!mpv.isConnected) {
         await mpv.ensureConnected()
       }
-      const displayName = getStationDisplayName(station, state().arabicNames)
+      const lang = state().language
+      const logicalName = lang === "en" ? station.nameEn : (station.nameAr ?? station.nameEn)
+      const author =
+        station.category === "reciter"
+          ? lang === "en"
+            ? station.nameEn
+            : (station.nameAr ?? station.nameEn)
+          : null
+      const artUrl = resolveStationArtUrl({
+        station,
+        author: station.category === "reciter" ? station.nameEn : null,
+        config: imageConfig,
+      })
       const nextState = recordRecent({ ...state(), lastStationId: station.id }, station.id)
       persistState(nextState)
-      await mpv.playStation(station, displayName)
+      await mpv.playStation(station, {
+        displayName: logicalName,
+        author,
+        artUrl,
+      })
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to start playback"
       setSnapshot((prev) => ({ ...prev, state: "error", error: msg }))
@@ -354,11 +389,12 @@ function QuraaShell(props: AppProps) {
     persistState(next)
   }
 
-  const toggleArabicNames = () => {
-    persistState({ ...state(), arabicNames: !state().arabicNames })
+  const cycleLanguage = () => {
+    const next = nextLanguage(state().language)
+    persistState({ ...state(), language: next })
   }
 
-  const openModal = (target: "modal:help" | "modal:add-custom") => {
+  const openModal = (target: "modal:help" | "modal:add-custom" | "modal:quit-confirm") => {
     const current = uiMode()
     if (current === "browse" || current === "search") {
       setPriorFocusMode(current)
@@ -368,7 +404,13 @@ function QuraaShell(props: AppProps) {
 
   const closeModal = () => {
     const current = uiMode()
-    if (current !== "modal:help" && current !== "modal:add-custom") return
+    if (
+      current !== "modal:help" &&
+      current !== "modal:add-custom" &&
+      current !== "modal:quit-confirm"
+    ) {
+      return
+    }
     setCustomError(null)
     setUiMode(priorFocusMode())
   }
@@ -499,6 +541,34 @@ function QuraaShell(props: AppProps) {
     })()
   }
 
+  const requestQuit = () => {
+    if (snapshot().state === "stopped") {
+      detachQuit()
+      return
+    }
+    setQuitChoice("no")
+    openModal("modal:quit-confirm")
+  }
+
+  const moveQuitChoice = (dir: 1 | -1) => {
+    const idx = QUIT_CHOICES.indexOf(quitChoice())
+    const nextIdx = (idx + dir + QUIT_CHOICES.length) % QUIT_CHOICES.length
+    setQuitChoice(QUIT_CHOICES[nextIdx] ?? "no")
+  }
+
+  const confirmQuitChoice = (explicitChoice?: QuitConfirmChoice) => {
+    const choice = explicitChoice ?? quitChoice()
+    if (choice === "cancel") {
+      closeModal()
+      return
+    }
+    if (choice === "no") {
+      detachQuit()
+      return
+    }
+    stopAndQuit()
+  }
+
   useQuraaBindings({
     uiMode,
     moveCursor,
@@ -528,7 +598,7 @@ function QuraaShell(props: AppProps) {
     toggleMute,
     toggleFavoriteSelected,
     cycleSleepTimer,
-    toggleArabicNames,
+    cycleLanguage,
     openAddCustomModal: () => {
       setCustomName("")
       setCustomUrl("")
@@ -544,6 +614,9 @@ function QuraaShell(props: AppProps) {
     },
     closeModal,
     switchModalField: () => setCustomField((f) => (f === "name" ? "url" : "name")),
+    requestQuit,
+    moveQuitChoice,
+    confirmQuitChoice,
     detachQuit,
     stopAndQuit,
   })
@@ -552,7 +625,20 @@ function QuraaShell(props: AppProps) {
     const onThemeMode = (mode: typeof themeMode extends () => infer T ? T : never) => {
       setThemeMode(mode)
     }
+    const onPalette = (colors: TerminalColors) => {
+      if (!disposed) setTerminalColors(colors)
+    }
     renderer.on("theme_mode", onThemeMode)
+    renderer.on("palette", onPalette)
+
+    if (!props.skipPaletteDetection && !props.initialPalette) {
+      void renderer
+        .getPalette({ timeout: 250 })
+        .then((colors) => {
+          if (!disposed) setTerminalColors(colors)
+        })
+        .catch(() => undefined)
+    }
 
     void (async () => {
       const [loadedState, loadedCustom] = await Promise.all([
@@ -619,6 +705,7 @@ function QuraaShell(props: AppProps) {
     onCleanup(() => {
       disposed = true
       renderer.off("theme_mode", onThemeMode)
+      renderer.off("palette", onPalette)
       if (undoTimer) clearTimeout(undoTimer)
       if (noticeTimer) clearTimeout(noticeTimer)
       if (sleepInterval) clearInterval(sleepInterval)
@@ -640,7 +727,7 @@ function QuraaShell(props: AppProps) {
         catalogSource={catalogSource()}
         totalCount={allStations().length}
         matchCount={filteredStations().length}
-        arabicNames={state().arabicNames}
+        language={state().language}
         activeTab={activeTab()}
         searchQuery={searchQuery()}
         searchFocused={uiMode() === "search"}
@@ -662,13 +749,14 @@ function QuraaShell(props: AppProps) {
         favorites={favoriteSet()}
         playingStationId={snapshot().stationId}
         playbackState={snapshot().state}
-        arabicNames={state().arabicNames}
+        language={state().language}
       />
 
       <NowPlayingBar
         theme={theme()}
         width={dimensions().width}
         snapshot={snapshot()}
+        language={state().language}
         stationTitle={playingTitle()}
         sleepRemainingSec={sleepRemainingSec()}
         spinnerTick={spinnerTick()}
@@ -711,6 +799,14 @@ function QuraaShell(props: AppProps) {
           submitCustomStation()
         }}
         onUrlSubmit={submitCustomStation}
+      />
+
+      <QuitConfirmModal
+        open={uiMode() === "modal:quit-confirm"}
+        theme={theme()}
+        width={dimensions().width}
+        stationTitle={playingTitle()}
+        focusedChoice={quitChoice()}
       />
     </box>
   )

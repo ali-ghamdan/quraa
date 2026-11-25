@@ -2,17 +2,31 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { StringDecoder } from "node:string_decoder"
 import { fileURLToPath } from "node:url"
 import type { Socket } from "bun"
+import {
+  DEFAULT_ARTWORK_PATH,
+  type ImageConfigMap,
+  loadImageConfig,
+  resolveStationArtUrl,
+} from "./images.ts"
+import { parseLiveStreamMetadata } from "./metadata.ts"
 import { ensureDir, type QuraaPaths } from "./paths.ts"
 import type { PlaybackSnapshot, PlaybackState, Station } from "./types.ts"
 
 const DEFAULT_MPRIS_PATH = "/usr/lib64/mpv/mpris.so"
+const ASSETS_DIR = fileURLToPath(new URL("../../assets/", import.meta.url))
 const DEFAULT_SLEEP_SCRIPT_PATH = fileURLToPath(
   new URL("../../assets/sleep-timer.lua", import.meta.url),
 )
+const DEFAULT_MPRIS_BRIDGE_PATH = fileURLToPath(
+  new URL("../../assets/mpris-bridge.py", import.meta.url),
+)
+const DEFAULT_CLI_ENTRY_PATH = fileURLToPath(new URL("../cli.ts", import.meta.url))
+
+export { extractMetadataText } from "./metadata.ts"
 
 const OBSERVED_PROPERTIES = [
-  "pause",
   "idle-active",
+  "pause",
   "paused-for-cache",
   "core-idle",
   "volume",
@@ -22,6 +36,11 @@ const OBSERVED_PROPERTIES = [
   "path",
   "user-data/quraa/sleep-until",
   "user-data/quraa/station-id",
+  "user-data/quraa/station-url",
+  "user-data/quraa/station-name",
+  "user-data/quraa/station-author",
+  "user-data/quraa/station-art",
+  "user-data/quraa/paused",
 ] as const
 
 type ObservedProperty = (typeof OBSERVED_PROPERTIES)[number]
@@ -34,6 +53,7 @@ interface PendingRequest {
 
 interface RawSignals {
   pause: boolean
+  pausedFlag?: boolean
   coreIdle: boolean
   idleActive: boolean
   pausedForCache: boolean
@@ -47,6 +67,10 @@ interface RawSignals {
   metadataRaw: Record<string, unknown> | null
   path: string | null
   stationId: string | null
+  stationUrl?: string | null
+  stationName?: string | null
+  stationAuthor?: string | null
+  stationArt?: string | null
   sleepUntil: number
 }
 
@@ -54,8 +78,37 @@ export interface DaemonOptions {
   initialVolume?: number
   muted?: boolean
   mprisPath?: string | null
+  useNativeMprisBridge?: boolean
+  mprisBusName?: string
   sleepScriptPath?: string
+  mprisBridgePath?: string
   startupTimeoutMs?: number
+}
+
+export interface PlayStationOptions {
+  displayName?: string
+  author?: string | null
+  artUrl?: string | null
+}
+
+let cachedPyGObjectAvailable: boolean | null = null
+
+export function hasPyGObjectSupport(): boolean {
+  if (cachedPyGObjectAvailable !== null) return cachedPyGObjectAvailable
+  try {
+    const res = Bun.spawnSync(
+      [
+        "python3",
+        "-c",
+        "import gi; gi.require_version('Gio','2.0'); from gi.repository import Gio, GLib",
+      ],
+      { stdin: "ignore", stdout: "ignore", stderr: "ignore" },
+    )
+    cachedPyGObjectAvailable = res.exitCode === 0
+  } catch {
+    cachedPyGObjectAvailable = false
+  }
+  return cachedPyGObjectAvailable
 }
 
 function clampVolume(vol: number): number {
@@ -91,40 +144,14 @@ function isPidRunning(pid: number): boolean {
   }
 }
 
-/** Extract a concise display string from ICY/stream metadata without echoing the forced title. */
-export function extractMetadataText(
-  metadata: Record<string, unknown> | null,
-  mediaTitle: string | null,
-  forcedTitle: string | null,
-): string | null {
-  if (metadata) {
-    let icyTitle = ""
-    let title = ""
-    let artist = ""
-    for (const [k, v] of Object.entries(metadata)) {
-      if (typeof v !== "string") continue
-      const val = v.trim()
-      if (!val) continue
-      const key = k.toLowerCase()
-      if (key === "icy-title") icyTitle = val
-      else if (key === "title") title = val
-      else if (key === "artist") artist = val
-    }
-    const chosen = icyTitle || title
-    if (chosen && chosen !== forcedTitle) {
-      return artist && !chosen.includes(artist) ? `${artist} — ${chosen}` : chosen
-    }
-  }
-  if (mediaTitle && mediaTitle !== forcedTitle && !mediaTitle.endsWith(" — Quraa")) {
-    return mediaTitle
-  }
-  return null
-}
-
 /** Derive Quraa's explicit PlaybackState from raw mpv property signals. */
 export function derivePlaybackState(s: RawSignals): PlaybackState {
   if (s.error) return "error"
-  if (s.idleActive) return s.connecting ? "connecting" : "stopped"
+  if (s.idleActive) {
+    if (s.connecting) return "connecting"
+    if (s.pausedFlag && s.stationId) return "paused"
+    return "stopped"
+  }
   if (s.pause) return "paused"
   if (s.pausedForCache || s.coreIdle) {
     return s.hasStartedAudio ? "reconnecting" : "connecting"
@@ -242,6 +269,11 @@ export async function ensureDaemon(
   const sleepScriptPath = options.sleepScriptPath ?? DEFAULT_SLEEP_SCRIPT_PATH
   const mprisPath =
     options.mprisPath === undefined ? DEFAULT_MPRIS_PATH : options.mprisPath
+  const bridgePath = options.mprisBridgePath ?? DEFAULT_MPRIS_BRIDGE_PATH
+  const wantBridge =
+    mprisPath !== null &&
+    (options.useNativeMprisBridge ?? hasPyGObjectSupport()) &&
+    existsSync(bridgePath)
 
   const args = [
     "--no-config",
@@ -257,7 +289,13 @@ export async function ensureDaemon(
     `--script=${sleepScriptPath}`,
   ]
 
-  if (mprisPath && existsSync(mprisPath)) {
+  if (wantBridge) {
+    const busOpt = options.mprisBusName ? `,quraa_mpris_name=${options.mprisBusName}` : ""
+    args.push(
+      `--script-opts=quraa_mpris_bridge=${bridgePath},quraa_ipc=${paths.mpvSocketFile},quraa_assets=${ASSETS_DIR},quraa_config=${paths.configDir},quraa_cli=${DEFAULT_CLI_ENTRY_PATH}${busOpt}`,
+    )
+  } else if (mprisPath && existsSync(mprisPath)) {
+    args.push(`--cover-art-files=${DEFAULT_ARTWORK_PATH}`)
     args.push(`--script=${mprisPath}`)
   }
 
@@ -294,6 +332,8 @@ export async function ensureDaemon(
 export class MpvClient {
   private readonly paths: QuraaPaths
   private readonly daemonOptions: DaemonOptions
+  private readonly imageConfig: { bundled: ImageConfigMap; user: ImageConfigMap }
+  private activeStation: Station | null = null
   private socket: Socket<undefined> | null = null
   private nextRequestId = 1
   private readonly pending = new Map<number, PendingRequest>()
@@ -303,12 +343,15 @@ export class MpvClient {
   private readBuffer = ""
   private connected = false
   private signals: RawSignals
+  private lastSyncedFallbackTitle: string | null = null
 
   constructor(paths: QuraaPaths, daemonOptions: DaemonOptions = {}) {
     this.paths = paths
     this.daemonOptions = daemonOptions
+    this.imageConfig = loadImageConfig(paths)
     this.signals = {
       pause: false,
+      pausedFlag: false,
       coreIdle: true,
       idleActive: true,
       pausedForCache: false,
@@ -322,6 +365,10 @@ export class MpvClient {
       metadataRaw: null,
       path: null,
       stationId: null,
+      stationUrl: null,
+      stationName: null,
+      stationAuthor: null,
+      stationArt: null,
       sleepUntil: 0,
     }
   }
@@ -330,20 +377,46 @@ export class MpvClient {
     return this.connected && this.socket !== null
   }
 
+  private isFallbackMprisMode(): boolean {
+    const mprisPath =
+      this.daemonOptions.mprisPath === undefined
+        ? DEFAULT_MPRIS_PATH
+        : this.daemonOptions.mprisPath
+    if (mprisPath === null) return false
+    const usingBridge =
+      (this.daemonOptions.useNativeMprisBridge ?? hasPyGObjectSupport()) &&
+      existsSync(this.daemonOptions.mprisBridgePath ?? DEFAULT_MPRIS_BRIDGE_PATH)
+    return !usingBridge
+  }
+
   getSnapshot(): PlaybackSnapshot {
-    const metadata = extractMetadataText(
-      this.signals.metadataRaw,
-      this.signals.mediaTitle,
-      this.signals.forcedTitle,
-    )
-    const fallbackTitle = this.signals.forcedTitle
-      ? this.signals.forcedTitle.replace(/ — Quraa$/, "")
-      : this.signals.mediaTitle
+    const stationName =
+      this.signals.stationName ??
+      (this.signals.forcedTitle ? this.signals.forcedTitle.replace(/ — Quraa$/, "") : null)
+    const parsed = parseLiveStreamMetadata({
+      metadataRaw: this.signals.metadataRaw,
+      mediaTitle: this.signals.mediaTitle,
+      forcedTitle: this.signals.forcedTitle,
+      stationName,
+      stationAuthor: this.signals.stationAuthor ?? null,
+      stationUrl: this.signals.stationUrl ?? this.signals.path,
+    })
+
+    const artUrl = resolveStationArtUrl({
+      station: this.activeStation,
+      author: parsed.author ?? this.signals.stationAuthor ?? null,
+      fallbackUri: this.signals.stationArt ?? null,
+      config: this.imageConfig,
+    })
+
     return {
       state: derivePlaybackState(this.signals),
       stationId: this.signals.stationId,
-      title: fallbackTitle,
-      metadata,
+      title: stationName ?? parsed.trackTitle,
+      trackTitle: parsed.trackTitle,
+      author: parsed.author,
+      artUrl,
+      metadata: parsed.metadata,
       volume: this.signals.volume,
       muted: this.signals.muted,
       sleepUntil: this.signals.sleepUntil,
@@ -366,8 +439,21 @@ export class MpvClient {
   }
 
   private emitSnapshot(): void {
-    if (this.snapshotListeners.size === 0) return
     const snap = this.getSnapshot()
+    if (this.isConnected && this.isFallbackMprisMode()) {
+      const targetTitle = snap.trackTitle
+        ? snap.author && !snap.trackTitle.includes(snap.author)
+          ? `${snap.author} — ${snap.trackTitle}`
+          : snap.trackTitle
+        : snap.title
+          ? `${snap.title} — Quraa`
+          : null
+      if (targetTitle && targetTitle !== this.lastSyncedFallbackTitle) {
+        this.lastSyncedFallbackTitle = targetTitle
+        void this.setProperty("force-media-title", targetTitle).catch(() => undefined)
+      }
+    }
+    if (this.snapshotListeners.size === 0) return
     for (const listener of this.snapshotListeners) {
       listener(snap)
     }
@@ -420,7 +506,6 @@ export class MpvClient {
       ),
     )
 
-    // Hydrate initial properties deterministically in order before returning from connect()
     const initialResults = await Promise.allSettled([
       ...OBSERVED_PROPERTIES.map((prop) => this.getProperty(prop)),
       this.getProperty<string>("force-media-title"),
@@ -508,12 +593,39 @@ export class MpvClient {
     await this.command(["set_property", name, value])
   }
 
-  async playStation(station: Station, displayName?: string): Promise<void> {
-    const label = (displayName ?? station.nameEn).trim() || station.rawNameEn
-    const forcedTitle = `${label} — Quraa`
+  async playStation(
+    station: Station,
+    options?: string | PlayStationOptions,
+  ): Promise<void> {
+    const opts: PlayStationOptions =
+      typeof options === "string" ? { displayName: options } : (options ?? {})
 
+    const stationName =
+      (opts.displayName ?? station.nameEn).trim() || station.rawNameEn
+    const defaultAuthor =
+      opts.author !== undefined
+        ? opts.author
+        : station.category === "reciter"
+          ? station.nameEn
+          : null
+    const artUrl =
+      opts.artUrl ??
+      resolveStationArtUrl({
+        station,
+        author: defaultAuthor,
+        config: this.imageConfig,
+      })
+
+    this.activeStation = station
+    this.lastSyncedFallbackTitle = null
+    this.signals.pausedFlag = false
+    this.signals.pause = false
     this.signals.stationId = station.id
-    this.signals.forcedTitle = forcedTitle
+    this.signals.stationUrl = station.url
+    this.signals.stationName = stationName
+    this.signals.stationAuthor = defaultAuthor
+    this.signals.stationArt = artUrl
+    this.signals.forcedTitle = this.isFallbackMprisMode() ? `${stationName} — Quraa` : null
     this.signals.mediaTitle = null
     this.signals.metadataRaw = null
     this.signals.connecting = true
@@ -521,17 +633,64 @@ export class MpvClient {
     this.signals.error = null
     this.emitSnapshot()
 
+    await this.setProperty("user-data/quraa/paused", "")
     await this.setProperty("user-data/quraa/station-id", station.id)
-    await this.setProperty("force-media-title", forcedTitle)
+    await this.setProperty("user-data/quraa/station-url", station.url)
+    await this.setProperty("user-data/quraa/station-name", stationName)
+    await this.setProperty("user-data/quraa/station-author", defaultAuthor ?? "")
+    await this.setProperty("user-data/quraa/station-art", artUrl)
+
+    if (this.isFallbackMprisMode()) {
+      await this.setProperty("force-media-title", `${stationName} — Quraa`)
+      if (artUrl.startsWith("file://")) {
+        await this.setProperty("cover-art-files", [fileURLToPath(artUrl)]).catch(
+          () => undefined,
+        )
+      }
+    } else {
+      await this.setProperty("force-media-title", "").catch(() => undefined)
+    }
+
     await this.command(["loadfile", station.url, "replace"])
   }
 
   async togglePause(): Promise<void> {
-    await this.command(["cycle", "pause"])
+    const isPaused = derivePlaybackState(this.signals) === "paused"
+    await this.setPause(!isPaused)
   }
 
   async setPause(paused: boolean): Promise<void> {
-    await this.setProperty("pause", paused)
+    if (paused) {
+      // Stop the demuxer under --idle=yes so mpv frees buffers & stops downloading while staying alive.
+      this.signals.pausedFlag = true
+      this.signals.pause = false
+      this.signals.connecting = false
+      this.signals.hasStartedAudio = false
+      this.signals.error = null
+      this.emitSnapshot()
+      await this.setProperty("user-data/quraa/paused", "1")
+      await this.command(["stop"])
+      return
+    }
+
+    this.signals.pausedFlag = false
+    await this.setProperty("user-data/quraa/paused", "")
+    const resumeUrl = this.signals.stationUrl ?? this.signals.path
+    if (resumeUrl) {
+      this.signals.pause = false
+      this.signals.connecting = true
+      this.signals.hasStartedAudio = false
+      this.signals.error = null
+      this.emitSnapshot()
+      if (this.isFallbackMprisMode() && this.signals.forcedTitle) {
+        await this.setProperty("force-media-title", this.signals.forcedTitle).catch(
+          () => undefined,
+        )
+      }
+      await this.command(["loadfile", resumeUrl, "replace"])
+      return
+    }
+    await this.setProperty("pause", false)
   }
 
   async setVolume(volume: number): Promise<number> {
@@ -558,8 +717,10 @@ export class MpvClient {
   }
 
   async stopPlayback(): Promise<void> {
+    this.signals.pausedFlag = false
     this.signals.connecting = false
     this.signals.error = null
+    await this.setProperty("user-data/quraa/paused", "").catch(() => undefined)
     await this.command(["stop"])
   }
 
@@ -737,6 +898,21 @@ export class MpvClient {
       case "user-data/quraa/station-id":
         this.signals.stationId = typeof data === "string" && data ? data : null
         return true
+      case "user-data/quraa/station-url":
+        this.signals.stationUrl = typeof data === "string" && data ? data : null
+        return true
+      case "user-data/quraa/station-name":
+        this.signals.stationName = typeof data === "string" && data ? data : null
+        return true
+      case "user-data/quraa/station-author":
+        this.signals.stationAuthor = typeof data === "string" && data ? data : null
+        return true
+      case "user-data/quraa/station-art":
+        this.signals.stationArt = typeof data === "string" && data ? data : null
+        return true
+      case "user-data/quraa/paused":
+        this.signals.pausedFlag = data === "1" || data === true
+        return true
     }
   }
 
@@ -748,11 +924,11 @@ export class MpvClient {
     }
   }
 
-  private handleSocketClosed(reason: string): void {
+  private handleSocketClosed(_reason: string): void {
     const wasConnected = this.connected
     this.socket = null
     this.connected = false
-    this.rejectAllPending(new Error(reason))
+    this.rejectAllPending(new Error(_reason))
     if (wasConnected) {
       for (const listener of this.disconnectListeners) {
         listener()
@@ -763,34 +939,41 @@ export class MpvClient {
 
 async function sendOneShotQuit(socketPath: string): Promise<void> {
   await new Promise<void>((resolve) => {
-    let settled = false
-    const finish = () => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      resolve()
-    }
-    const timer = setTimeout(finish, 400)
-
+    const timer = setTimeout(resolve, 400)
     Bun.connect({
       unix: socketPath,
       socket: {
         open(sock) {
-          sock.write('{"command":["quit"],"request_id":1}\n')
+          sock.write('{"command":["quit"]}\n')
+          setTimeout(() => {
+            try {
+              sock.end()
+            } catch {
+              // ignore
+            }
+            clearTimeout(timer)
+            resolve()
+          }, 50)
         },
         data() {
-          finish()
-        },
-        close() {
-          finish()
+          // ignore
         },
         error() {
-          finish()
+          clearTimeout(timer)
+          resolve()
+        },
+        close() {
+          clearTimeout(timer)
+          resolve()
         },
         connectError() {
-          finish()
+          clearTimeout(timer)
+          resolve()
         },
       },
-    }).catch(() => finish())
+    }).catch(() => {
+      clearTimeout(timer)
+      resolve()
+    })
   })
 }

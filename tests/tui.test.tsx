@@ -1,13 +1,17 @@
 import { afterEach, describe, expect, test } from "bun:test"
+import { RGBA } from "@opentui/core"
 import { testRender } from "@opentui/solid"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { formatArabicFixed } from "../src/core/arabic.ts"
 import { FALLBACK_STATIONS } from "../src/core/catalog.ts"
+import type { PlayStationOptions } from "../src/core/mpv.ts"
 import { type QuraaPaths, resolvePaths } from "../src/core/paths.ts"
 import { atomicWriteJson, loadCustomStations, loadState } from "../src/core/store.ts"
 import type { PlaybackSnapshot, Station } from "../src/core/types.ts"
 import { App, type MpvController } from "../src/ui/App.tsx"
+import { resolveTerminalPalette } from "../src/ui/theme.ts"
 
 class FakeMpvController implements MpvController {
   isConnected: boolean
@@ -23,6 +27,9 @@ class FakeMpvController implements MpvController {
       state: "stopped",
       stationId: null,
       title: null,
+      trackTitle: null,
+      author: null,
+      artUrl: null,
       metadata: null,
       volume: 80,
       muted: false,
@@ -68,12 +75,15 @@ class FakeMpvController implements MpvController {
     this.isConnected = false
   }
 
-  async playStation(station: Station, displayName?: string): Promise<void> {
+  async playStation(station: Station, options?: string | PlayStationOptions): Promise<void> {
+    const opts = typeof options === "string" ? { displayName: options } : (options ?? {})
     this.calls.push(`playStation:${station.id}`)
     this.pushSnapshot({
       state: "playing",
       stationId: station.id,
-      title: displayName ?? station.nameEn,
+      title: opts.displayName ?? station.nameEn,
+      author: opts.author ?? null,
+      artUrl: opts.artUrl ?? null,
       error: null,
     })
   }
@@ -188,7 +198,7 @@ describe("Quraa TUI matrix", () => {
     const standard = setup.captureCharFrame()
     expect(standard).toContain("1:All")
     expect(standard).toContain("VOL 080% [")
-    expect(standard).toContain("q Detach")
+    expect(standard).toContain("q Quit")
     expect(standard).toContain("Q Stop")
     await setup.dispose()
     setup = null
@@ -206,7 +216,7 @@ describe("Quraa TUI matrix", () => {
     await flushUi()
     const wide = setup.captureCharFrame()
     expect(wide).toContain("-/= Vol")
-    expect(wide).toContain("a AR/EN")
+    expect(wide).toContain("a EN/AR/Fix")
     expect(wide).toContain("+ Add")
   })
 
@@ -315,13 +325,18 @@ describe("Quraa TUI matrix", () => {
     expect(setup.captureCharFrame()).toContain(FALLBACK_STATIONS[0]!.nameEn)
     expect(setup.captureCharFrame()).toContain("★")
 
-    // Arabic toggle (a)
+    // Language cycle (a): EN -> AR -> AR-FIX -> EN
     setup.mockInput.pressKey("a")
     await flushUi()
     expect(setup.captureCharFrame()).toContain("[AR]")
     expect(setup.captureCharFrame()).toContain(FALLBACK_STATIONS[0]!.nameAr!)
 
-    // Switch back to All and EN, search zero hits -> Esc recovers
+    setup.mockInput.pressKey("a")
+    await flushUi()
+    expect(setup.captureCharFrame()).toContain("[AR-FIX]")
+    expect(setup.captureCharFrame()).toContain(formatArabicFixed(FALLBACK_STATIONS[0]!.nameAr!))
+
+    // Cycle back to EN and All tab, search zero hits -> Esc recovers
     setup.mockInput.pressKey("a")
     setup.mockInput.pressKey("1")
     await flushUi()
@@ -405,10 +420,14 @@ describe("Quraa TUI matrix", () => {
     expect(setup.captureCharFrame()).toContain("My Test Radio")
   })
 
-  test("Help modal (?) restores browse mode on Esc, and q/Q detach vs stopDaemon cleanly", async () => {
+  test("Help modal (?) restores browse mode on Esc, and q opens Stop Radio? confirmation (Cancel/No/Yes)", async () => {
     const paths = makeTempPaths()
     await atomicWriteJson(paths.customStationsFile, [])
-    const client = new FakeMpvController({ connected: true, state: "playing", stationId: FALLBACK_STATIONS[0]!.id })
+    const client = new FakeMpvController({
+      connected: true,
+      state: "playing",
+      stationId: FALLBACK_STATIONS[0]!.id,
+    })
 
     setup = await testRender(
       () => (
@@ -439,7 +458,7 @@ describe("Quraa TUI matrix", () => {
     expect(client.calls).toContain("setVolume:85")
     expect((await loadState(paths.stateFile)).volume).toBe(85)
 
-    // q detaches cleanly without stopping daemon
+    // Spy on destroy before testing Quit confirmation flows
     let destroyCount = 0
     const origDestroy = setup.renderer.destroy.bind(setup.renderer)
     setup.renderer.destroy = (() => {
@@ -447,15 +466,38 @@ describe("Quraa TUI matrix", () => {
       origDestroy()
     }) as typeof setup.renderer.destroy
 
+    // Pressing q while playing opens Stop Radio? dialog with Cancel / No / Yes
     setup.mockInput.pressKey("q")
+    await flushUi()
+    const quitDialogFrame = setup.captureCharFrame()
+    expect(quitDialogFrame).toContain("Stop Radio?")
+    expect(quitDialogFrame).toContain("Cancel")
+    expect(quitDialogFrame).toContain("No")
+    expect(quitDialogFrame).toContain("Yes")
+
+    // Esc cancels back into Quraa without quitting or stopping daemon
+    setup.mockInput.pressEscape()
+    await flushUi()
+    expect(setup.captureCharFrame()).not.toContain("Stop Radio?")
+    expect(destroyCount).toBe(0)
+    expect(client.calls).not.toContain("disconnect")
+
+    // Pressing q then confirming default "No" (Enter) detaches without stopping daemon
+    setup.mockInput.pressKey("q")
+    await flushUi()
+    setup.mockInput.pressEnter()
     await flushUi()
     expect(client.calls).toContain("disconnect")
     expect(client.calls).not.toContain("stopDaemon")
     expect(destroyCount).toBe(1)
     setup = null
 
-    // Fresh session pressing Shift+Q stops daemon + destroys renderer
-    const client2 = new FakeMpvController({ connected: true, state: "playing", stationId: FALLBACK_STATIONS[0]!.id })
+    // Fresh active session: q -> arrow right ("Yes") -> Enter stops daemon + destroys renderer
+    const client2 = new FakeMpvController({
+      connected: true,
+      state: "playing",
+      stationId: FALLBACK_STATIONS[0]!.id,
+    })
     setup = await testRender(
       () => (
         <App
@@ -468,17 +510,73 @@ describe("Quraa TUI matrix", () => {
     )
     await flushUi()
 
-    let stopDestroyCount = 0
+    let yesDestroyCount = 0
     const origDestroy2 = setup.renderer.destroy.bind(setup.renderer)
     setup.renderer.destroy = (() => {
-      stopDestroyCount += 1
+      yesDestroyCount += 1
       origDestroy2()
     }) as typeof setup.renderer.destroy
 
-    setup.mockInput.pressKey("q", { shift: true })
+    setup.mockInput.pressKey("q")
+    await flushUi()
+    setup.mockInput.pressArrow("right")
+    await flushUi()
+    setup.mockInput.pressEnter()
     await flushUi(40)
     expect(client2.calls).toContain("stopDaemon")
-    expect(stopDestroyCount).toBe(1)
+    expect(yesDestroyCount).toBe(1)
     setup = null
+
+    // Idle session: q quits immediately without prompting
+    const idleClient = new FakeMpvController({ connected: false, state: "stopped" })
+    setup = await testRender(
+      () => (
+        <App
+          paths={paths}
+          initialCatalog={FALLBACK_STATIONS}
+          clientFactory={() => idleClient}
+        />
+      ),
+      { width: 96, height: 28 },
+    )
+    await flushUi()
+
+    let idleDestroyCount = 0
+    const origDestroy3 = setup.renderer.destroy.bind(setup.renderer)
+    setup.renderer.destroy = (() => {
+      idleDestroyCount += 1
+      origDestroy3()
+    }) as typeof setup.renderer.destroy
+
+    setup.mockInput.pressKey("q")
+    await flushUi()
+    expect(idleDestroyCount).toBe(1)
+    setup = null
+  })
+
+  test("resolves terminal-native colors from default terminal palette and OSC colors", () => {
+    const fallback = resolveTerminalPalette("dark")
+    expect((fallback.bgBase as RGBA).intent).toBe("default")
+    expect((fallback.textPrimary as RGBA).intent).toBe("default")
+    expect((fallback.accent as RGBA).intent).toBe("indexed")
+    expect((fallback.fav as RGBA).intent).toBe("indexed")
+    expect((fallback.danger as RGBA).intent).toBe("indexed")
+
+    const oscPalette = resolveTerminalPalette(null, {
+      palette: ["#1e1e2e", "#f38ba8", "#a6e3a1", "#f9e2af", "#89b4fa", "#cba6f7", "#94e2d5", "#bac2de", "#585b70"],
+      defaultBackground: "#1e1e2e",
+      defaultForeground: "#cdd6f4",
+      cursorColor: null,
+      mouseForeground: null,
+      mouseBackground: null,
+      tekForeground: null,
+      tekBackground: null,
+      highlightBackground: "#313244",
+      highlightForeground: null,
+    })
+    expect(oscPalette.mode).toBe("dark")
+    expect(oscPalette.bgSelected).toBe("#313244")
+    expect(typeof oscPalette.bgModal).toBe("string")
+    expect(typeof oscPalette.borderSubtle).toBe("string")
   })
 })

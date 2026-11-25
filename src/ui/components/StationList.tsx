@@ -1,7 +1,7 @@
 import type { ScrollBoxRenderable } from "@opentui/core"
 import { createEffect, For, Show } from "solid-js"
 import { getStationDisplayName } from "../../core/catalog.ts"
-import type { CategoryTab, PlaybackState, Station } from "../../core/types.ts"
+import type { AppLanguage, CategoryTab, PlaybackState, Station } from "../../core/types.ts"
 import type { ThemePalette } from "../theme.ts"
 
 export interface StationListProps {
@@ -14,7 +14,7 @@ export interface StationListProps {
   favorites: ReadonlySet<string>
   playingStationId: string | null
   playbackState: PlaybackState
-  arabicNames: boolean
+  language: AppLanguage
 }
 
 export function stationRowId(stationId: string): string {
@@ -120,7 +120,7 @@ export function StationList(props: StationListProps) {
               const tag = () => formatCategoryTag(station)
               const showTag = () => props.width >= 58 && tag().length > 0
               const displayName = () =>
-                getStationDisplayName(station, props.arabicNames)
+                getStationDisplayName(station, props.language)
 
               const playGlyph = () => {
                 if (!isPlayingHere()) return " "

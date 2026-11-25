@@ -8,6 +8,7 @@ export interface QuraaPaths {
   stateDir: string
   runtimeDir: string
   customStationsFile: string
+  imagesConfigFile: string
   cacheStationsFile: string
   stateFile: string
   mpvSocketFile: string
@@ -33,6 +34,7 @@ export function resolvePaths(
     stateDir,
     runtimeDir,
     customStationsFile: join(configDir, "stations.json"),
+    imagesConfigFile: join(configDir, "images.json"),
     cacheStationsFile: join(cacheDir, "stations.json"),
     stateFile: join(stateDir, "state.json"),
     mpvSocketFile: join(runtimeDir, "mpv.sock"),

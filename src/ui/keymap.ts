@@ -2,7 +2,7 @@ import type { CliRenderer } from "@opentui/core"
 import { createDefaultOpenTuiKeymap } from "@opentui/keymap/opentui"
 import { reactiveMatcherFromSignal, useBindings } from "@opentui/keymap/solid"
 import type { Accessor } from "solid-js"
-import type { CategoryTab, UiMode } from "../core/types.ts"
+import type { CategoryTab, QuitConfirmChoice, UiMode } from "../core/types.ts"
 import { CATEGORY_TABS } from "./theme.ts"
 
 export interface QuraaKeymapHandlers {
@@ -21,13 +21,16 @@ export interface QuraaKeymapHandlers {
   toggleMute: () => void
   toggleFavoriteSelected: () => void
   cycleSleepTimer: () => void
-  toggleArabicNames: () => void
+  cycleLanguage: () => void
   openAddCustomModal: () => void
   deleteCustomSelected: () => void
   undoDeleteCustom: () => void
   toggleHelpModal: () => void
   closeModal: () => void
   switchModalField: (dir: 1 | -1) => void
+  requestQuit: () => void
+  moveQuitChoice: (dir: 1 | -1) => void
+  confirmQuitChoice: (choice?: QuitConfirmChoice) => void
   detachQuit: () => void
   stopAndQuit: () => void
 }
@@ -41,7 +44,7 @@ export function useQuraaBindings(handlers: QuraaKeymapHandlers): void {
   const isSearch = reactiveMatcherFromSignal(handlers.uiMode, (m) => m === "search")
   const isModal = reactiveMatcherFromSignal(
     handlers.uiMode,
-    (m) => m === "modal:help" || m === "modal:add-custom",
+    (m) => m === "modal:help" || m === "modal:add-custom" || m === "modal:quit-confirm",
   )
   const isHelpModal = reactiveMatcherFromSignal(
     handlers.uiMode,
@@ -50,6 +53,10 @@ export function useQuraaBindings(handlers: QuraaKeymapHandlers): void {
   const isCustomModal = reactiveMatcherFromSignal(
     handlers.uiMode,
     (m) => m === "modal:add-custom",
+  )
+  const isQuitModal = reactiveMatcherFromSignal(
+    handlers.uiMode,
+    (m) => m === "modal:quit-confirm",
   )
 
   useBindings(() => ({
@@ -82,7 +89,7 @@ export function useQuraaBindings(handlers: QuraaKeymapHandlers): void {
       { key: "m", cmd: () => handlers.toggleMute() },
       { key: "f", cmd: () => handlers.toggleFavoriteSelected() },
       { key: "t", cmd: () => handlers.cycleSleepTimer() },
-      { key: "a", cmd: () => handlers.toggleArabicNames() },
+      { key: "a", cmd: () => handlers.cycleLanguage() },
       { key: "+", cmd: () => handlers.openAddCustomModal() },
       { key: "plus", cmd: () => handlers.openAddCustomModal() },
       { key: "n", cmd: () => handlers.openAddCustomModal() },
@@ -90,7 +97,7 @@ export function useQuraaBindings(handlers: QuraaKeymapHandlers): void {
       { key: "u", cmd: () => handlers.undoDeleteCustom() },
       { key: "?", cmd: () => handlers.toggleHelpModal() },
       { key: "shift+?", cmd: () => handlers.toggleHelpModal() },
-      { key: "q", cmd: () => handlers.detachQuit() },
+      { key: "q", cmd: () => handlers.requestQuit() },
       { key: "shift+q", cmd: () => handlers.stopAndQuit() },
       { key: "ctrl+c", cmd: () => handlers.detachQuit() },
     ],
@@ -131,6 +138,25 @@ export function useQuraaBindings(handlers: QuraaKeymapHandlers): void {
     bindings: [
       { key: "tab", cmd: () => handlers.switchModalField(1) },
       { key: "shift+tab", cmd: () => handlers.switchModalField(-1) },
+    ],
+  }))
+
+  useBindings(() => ({
+    priority: 35,
+    enabled: isQuitModal,
+    bindings: [
+      { key: "left", cmd: () => handlers.moveQuitChoice(-1) },
+      { key: "h", cmd: () => handlers.moveQuitChoice(-1) },
+      { key: "shift+tab", cmd: () => handlers.moveQuitChoice(-1) },
+      { key: "right", cmd: () => handlers.moveQuitChoice(1) },
+      { key: "l", cmd: () => handlers.moveQuitChoice(1) },
+      { key: "tab", cmd: () => handlers.moveQuitChoice(1) },
+      { key: "return", cmd: () => handlers.confirmQuitChoice() },
+      { key: "enter", cmd: () => handlers.confirmQuitChoice() },
+      { key: "y", cmd: () => handlers.confirmQuitChoice("yes") },
+      { key: "n", cmd: () => handlers.confirmQuitChoice("no") },
+      { key: "c", cmd: () => handlers.confirmQuitChoice("cancel") },
+      { key: "q", cmd: () => handlers.confirmQuitChoice("cancel") },
     ],
   }))
 }

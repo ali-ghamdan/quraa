@@ -1,5 +1,7 @@
 export type StationCategory = "reciter" | "thematic" | "custom"
 
+export type AppLanguage = "en" | "ar" | "ar-fixed"
+
 export type CategoryTab =
   | "all"
   | "favorites"
@@ -16,7 +18,14 @@ export type PlaybackState =
   | "reconnecting"
   | "error"
 
-export type UiMode = "browse" | "search" | "modal:help" | "modal:add-custom"
+export type UiMode =
+  | "browse"
+  | "search"
+  | "modal:help"
+  | "modal:add-custom"
+  | "modal:quit-confirm"
+
+export type QuitConfirmChoice = "cancel" | "no" | "yes"
 
 export type FocusZone = "search" | "tabs" | "list"
 
@@ -28,12 +37,13 @@ export interface Station {
   rawNameEn: string
   url: string
   category: StationCategory
+  image?: string
 }
 
 export interface PersistedState {
   volume: number
   muted: boolean
-  arabicNames: boolean
+  language: AppLanguage
   favorites: string[]
   recents: string[]
   lastStationId: string | null
@@ -43,6 +53,9 @@ export interface PlaybackSnapshot {
   state: PlaybackState
   stationId: string | null
   title: string | null
+  trackTitle: string | null
+  author: string | null
+  artUrl: string | null
   metadata: string | null
   volume: number
   muted: boolean

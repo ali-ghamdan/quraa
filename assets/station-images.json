@@ -1,0 +1,9 @@
+{
+  "default": "quraa-default.png",
+  "stations": {
+    "reciter": "quraa-reciter.png",
+    "thematic": "quraa-thematic.png",
+    "custom": "quraa-default.png"
+  },
+  "authors": {}
+}

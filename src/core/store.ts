@@ -1,14 +1,17 @@
 import { existsSync, renameSync, unlinkSync } from "node:fs"
-import { dirname } from "node:path"
+import { dirname, isAbsolute, resolve } from "node:path"
+import { homedir } from "node:os"
 import { ensureDir } from "./paths.ts"
-import type { PersistedState, Station } from "./types.ts"
+import type { AppLanguage, PersistedState, Station } from "./types.ts"
 
 export const MAX_RECENTS = 30
+
+export const LANGUAGE_CYCLE: readonly AppLanguage[] = ["en", "ar", "ar-fixed"]
 
 export const DEFAULT_PERSISTED_STATE: PersistedState = {
   volume: 80,
   muted: false,
-  arabicNames: false,
+  language: "en",
   favorites: [],
   recents: [],
   lastStationId: null,
@@ -19,11 +22,21 @@ export interface CustomStationRecord {
   name: string
   nameAr?: string
   url: string
+  image?: string
 }
 
 export type UrlValidationResult =
   | { ok: true; url: string }
   | { ok: false; error: string }
+
+export function nextLanguage(current: AppLanguage): AppLanguage {
+  const idx = LANGUAGE_CYCLE.indexOf(current)
+  return LANGUAGE_CYCLE[(idx + 1) % LANGUAGE_CYCLE.length] ?? "en"
+}
+
+export function isAppLanguage(value: unknown): value is AppLanguage {
+  return value === "en" || value === "ar" || value === "ar-fixed"
+}
 
 export function validateStationUrl(rawUrl: string): UrlValidationResult {
   const trimmed = rawUrl.trim()
@@ -43,6 +56,43 @@ export function validateStationUrl(rawUrl: string): UrlValidationResult {
     return { ok: false, error: "Stream URL must include a host name" }
   }
   return { ok: true, url: trimmed }
+}
+
+/** Validate an image URL (`http://`, `https://`, `file://`) or local filesystem path. */
+export function validateImageRef(rawImage: string | undefined): string | undefined {
+  if (typeof rawImage !== "string") return undefined
+  const trimmed = rawImage.trim()
+  if (!trimmed) return undefined
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      const parsed = new URL(trimmed)
+      if ((parsed.protocol === "http:" || parsed.protocol === "https:") && parsed.hostname) {
+        return trimmed
+      }
+    } catch {
+      return undefined
+    }
+    return undefined
+  }
+  if (/^file:\/\//i.test(trimmed)) {
+    try {
+      const parsed = new URL(trimmed)
+      return parsed.protocol === "file:" && parsed.pathname ? trimmed : undefined
+    } catch {
+      return undefined
+    }
+  }
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) {
+    return undefined
+  }
+  const expanded = trimmed.startsWith("~/")
+    ? resolve(homedir(), trimmed.slice(2))
+    : trimmed === "~"
+      ? homedir()
+      : isAbsolute(trimmed)
+        ? trimmed
+        : resolve(trimmed)
+  return expanded
 }
 
 export function cleanStationName(raw: string): string {
@@ -112,13 +162,16 @@ export function sanitizePersistedState(raw: unknown): PersistedState {
     typeof obj.volume === "number" && Number.isFinite(obj.volume)
       ? Math.max(0, Math.min(150, Math.round(obj.volume)))
       : DEFAULT_PERSISTED_STATE.volume
+  const language: AppLanguage = isAppLanguage(obj.language)
+    ? obj.language
+    : obj.arabicNames === true
+      ? "ar"
+      : DEFAULT_PERSISTED_STATE.language
+
   return {
     volume,
     muted: typeof obj.muted === "boolean" ? obj.muted : DEFAULT_PERSISTED_STATE.muted,
-    arabicNames:
-      typeof obj.arabicNames === "boolean"
-        ? obj.arabicNames
-        : DEFAULT_PERSISTED_STATE.arabicNames,
+    language,
     favorites: uniqueStrings(obj.favorites),
     recents: uniqueStrings(obj.recents, MAX_RECENTS),
     lastStationId:
@@ -182,6 +235,7 @@ export async function loadCustomStations(customStationsFile: string): Promise<St
         typeof rec.nameAr === "string" && rec.nameAr.trim().length > 0
           ? cleanArabicName(rec.nameAr)
           : undefined
+      const image = validateImageRef(typeof rec.image === "string" ? rec.image : undefined)
 
       stations.push({
         id,
@@ -190,6 +244,7 @@ export async function loadCustomStations(customStationsFile: string): Promise<St
         rawNameEn: rawName,
         url: urlCheck.url,
         category: "custom",
+        ...(image ? { image } : {}),
       })
     }
     return stations
@@ -210,6 +265,7 @@ export async function saveCustomStations(
       name: s.rawNameEn || s.nameEn,
       ...(s.nameAr ? { nameAr: s.nameAr } : {}),
       url: s.url,
+      ...(s.image ? { image: s.image } : {}),
     }))
   await atomicWriteJson(customStationsFile, records)
 }
@@ -218,6 +274,7 @@ export function createCustomStation(input: {
   name: string
   url: string
   nameAr?: string
+  image?: string
   existingIds?: Iterable<string>
 }): { ok: true; station: Station } | { ok: false; error: string } {
   const name = input.name.trim()
@@ -238,6 +295,7 @@ export function createCustomStation(input: {
   }
 
   const nameAr = input.nameAr?.trim() ? cleanArabicName(input.nameAr) : undefined
+  const image = validateImageRef(input.image)
   return {
     ok: true,
     station: {
@@ -247,6 +305,7 @@ export function createCustomStation(input: {
       rawNameEn: name,
       url: urlCheck.url,
       category: "custom",
+      ...(image ? { image } : {}),
     },
   }
 }
